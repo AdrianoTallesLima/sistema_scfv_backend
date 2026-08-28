@@ -40,6 +40,13 @@ export async function login(req: any, res: any) {
       })
     }
 
+    req.session.usuario = {
+      id: usuario.id,
+      nome: usuario.nome,
+      login: usuario.login,
+      perfil: usuario.perfil,
+    }
+
     return res.status(200).json({
       mensagem: "Login realizado com sucesso.",
       usuario: {
