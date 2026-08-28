@@ -64,3 +64,26 @@ export async function login(req: any, res: any) {
     })
   }
 }
+
+export async function me(req: any, res: any) {
+  return res.status(200).json({
+    usuario: req.session.usuario
+  })
+}
+  
+
+export async function logout(req: any, res: any) {
+  req.session.destroy((erro: any) => {
+    if (erro) {
+      return res.status(500).json({
+        mensagem: "Erro ao encerrar sessão."
+      })
+    }
+
+    res.clearCookie("connect.sid")
+
+    return res.status(200).json({
+      mensagem: "Logout realizado com sucesso."
+    })
+  })
+}
