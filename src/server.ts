@@ -4,6 +4,7 @@ import session from "express-session"
 import connectPgSimple from "connect-pg-simple"
 
 import authRoutes from "./routes/authRoutes.js"
+import userRoutes from "./routes/userRoutes.js"
 
 const app = express()
 
@@ -19,7 +20,6 @@ app.use(
   session({
     store: new PgSession({
       conString: process.env.DATABASE_URL,
-      createTableIfMissing: true,
     }),
 
     secret: process.env.SESSION_SECRET,
@@ -45,6 +45,7 @@ app.get("/", (req, res) => {
 })
 
 app.use("/api", authRoutes)
+app.use("/api/users", userRoutes)
 
 app.listen(3000, () => {
   console.log("Servidor rodando na porta 3000")

@@ -14,7 +14,7 @@ datasource db {
 
 enum PerfilUsuario {
   ADMIN
-  ATENDENTE
+  ORIENTADOR
 }
 
 model Usuario {
@@ -22,8 +22,17 @@ model Usuario {
   nome      String
   login     String        @unique
   senhaHash String
-  perfil    PerfilUsuario @default(ATENDENTE)
+  perfil    PerfilUsuario @default(ORIENTADOR)
   ativo     Boolean       @default(true)
   criadoEm  DateTime      @default(now())
   atualizadoEm DateTime   @updatedAt
+}
+
+model Session {
+  sid    String   @id
+  sess   Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("session")
 }

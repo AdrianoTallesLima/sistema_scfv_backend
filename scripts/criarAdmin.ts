@@ -2,33 +2,33 @@ import "dotenv/config"
 import bcrypt from "bcryptjs"
 import { prisma } from "../src/db.js"
 
-async function criarAdmin() {
-  const nome = process.env.ADMIN_NOME
+async function createAdmin() {
+  const name = process.env.ADMIN_NAME
   const login = process.env.ADMIN_LOGIN
-  const senha = process.env.ADMIN_SENHA
+  const password = process.env.ADMIN_PASSWORD
 
-  if (!nome || !login || !senha) {
+  if (!name || !login || !password) {
     throw new Error("Dados do administrador não encontrados no .env")
   }
 
-  const usuarioExistente = await prisma.usuario.findUnique({
+  const existingUser = await prisma.usuario.findUnique({
     where: {
       login
     }
   })
 
-  if (usuarioExistente) {
+  if (existingUser) {
     console.log("Já existe um usuário com esse login.")
     return
   }
 
-  const senhaHash = await bcrypt.hash(senha, 12)
+  const passwordHash = await bcrypt.hash(password, 12)
 
   const admin = await prisma.usuario.create({
     data: {
-      nome,
+      nome: name,
       login,
-      senhaHash,
+      senhaHash: passwordHash,
       perfil: "ADMIN"
     }
   })
@@ -36,9 +36,9 @@ async function criarAdmin() {
   console.log(`Administrador "${admin.nome}" criado com sucesso!`)
 }
 
-criarAdmin()
-  .catch((erro) => {
-    console.error(erro)
+createAdmin()
+  .catch((error) => {
+    console.error(error)
   })
   .finally(async () => {
     await prisma.$disconnect()
