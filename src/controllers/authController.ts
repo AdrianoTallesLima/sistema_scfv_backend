@@ -1,19 +1,27 @@
 import bcrypt from "bcryptjs"
 import { prisma } from "../db.js"
+import { normalizeLogin } from "../utils/normalizeLogin.js"
 
 export async function login(req: any, res: any) {
   try {
     const { login, password } = req.body
 
-    if (!login || !password) {
+    if (
+      typeof login !== "string" ||
+      typeof password !== "string" ||
+      !login.trim() ||
+      !password
+    ) {
       return res.status(400).json({
         mensagem: "Login e senha são obrigatórios."
       })
     }
 
+    const normalizedLogin = normalizeLogin(login)
+
     const user = await prisma.usuario.findUnique({
       where: {
-        login
+        login: normalizedLogin
       }
     })
 

@@ -1,3 +1,4 @@
+import { normalizeLogin } from "../utils/normalizeLogin.js"
 import bcrypt from "bcryptjs"
 import { prisma } from "../db.js"
 
@@ -17,9 +18,17 @@ export async function createUser(req: any, res: any) {
       })
     }
 
+    const normalizedLogin = normalizeLogin(login)
+
+    if (/\s/.test(normalizedLogin)) {
+      return res.status(400).json({
+        message: "O nome de usuário não pode conter espaços."
+      })
+    }
+
     const existingUser = await prisma.usuario.findUnique({
       where: {
-        login
+        login: normalizedLogin
       }
     })
 
@@ -34,7 +43,7 @@ export async function createUser(req: any, res: any) {
     const user = await prisma.usuario.create({
       data: {
         nome: name,
-        login,
+        login: normalizedLogin,
         senhaHash: passwordHash,
         perfil: "ORIENTADOR"
       }
@@ -176,6 +185,14 @@ export async function updateUser(req: any, res: any) {
       })
     }
 
+    const normalizedLogin = normalizeLogin(login)
+
+    if (/\s/.test(normalizedLogin)) {
+      return res.status(400).json({
+        message: "O nome de usuário não pode conter espaços."
+      })
+    }
+
     const existingUser = await prisma.usuario.findUnique({
       where: {
         id: userId
@@ -190,7 +207,7 @@ export async function updateUser(req: any, res: any) {
 
     const loginInUse = await prisma.usuario.findFirst({
       where: {
-        login,
+        login: normalizedLogin,
         NOT: {
           id: userId
         }
@@ -209,7 +226,7 @@ export async function updateUser(req: any, res: any) {
       },
       data: {
         nome: name,
-        login
+        login: normalizedLogin
       }
     })
 
