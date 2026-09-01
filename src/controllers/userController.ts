@@ -231,3 +231,55 @@ export async function updateUser(req: any, res: any) {
     })
   }
 }
+
+export async function resetUserPassword(req: any, res: any) {
+  try {
+    const userId = Number(req.params.id)
+    const { password } = req.body
+
+    if (Number.isNaN(userId)) {
+      return res.status(400).json({
+        message: "ID de usuário inválido."
+      })
+    }
+
+    if (typeof password !== "string" || password.length < 6) {
+      return res.status(400).json({
+        message: "A nova senha deve ter pelo menos 6 caracteres."
+      })
+    }
+
+    const existingUser = await prisma.usuario.findUnique({
+      where: {
+        id: userId
+      }
+    })
+
+    if (!existingUser) {
+      return res.status(404).json({
+        message: "Usuário não encontrado."
+      })
+    }
+
+    const passwordHash = await bcrypt.hash(password,12)
+
+    await prisma.usuario.update({
+      where: {
+        id: userId
+      },
+      data: {
+        senhaHash: passwordHash
+      }
+    })
+
+    return res.status(200).json({
+      message: "Senha redefinida com sucesso."
+    })
+  } catch (error) {
+    console.error(error)
+
+    return res.status(500).json({
+      message: "Erro interno do servidor."
+    })
+  }
+}
