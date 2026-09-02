@@ -1,6 +1,7 @@
 import "dotenv/config"
 import bcrypt from "bcryptjs"
 import { prisma } from "../src/db.js"
+import { normalizeLogin } from "../src/utils/normalizeLogin.js"
 
 async function createAdmin() {
   const name = process.env.ADMIN_NAME
@@ -11,9 +12,11 @@ async function createAdmin() {
     throw new Error("Dados do administrador não encontrados no .env")
   }
 
+  const normalizedLogin = normalizeLogin(login)
+
   const existingUser = await prisma.usuario.findUnique({
     where: {
-      login
+      login: normalizedLogin
     }
   })
 
@@ -27,7 +30,7 @@ async function createAdmin() {
   const admin = await prisma.usuario.create({
     data: {
       nome: name,
-      login,
+      login: normalizedLogin,
       senhaHash: passwordHash,
       perfil: "ADMIN"
     }

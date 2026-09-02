@@ -6,7 +6,14 @@ export async function createUser(req: any, res: any) {
   try {
     const { name, login, password } = req.body
 
-    if (!name || !login || !password) {
+    if (
+      typeof name !== "string" ||
+      typeof login !== "string" ||
+      typeof password !== "string" ||
+      !name.trim() ||
+      !login.trim() ||
+      !password
+    ) {
       return res.status(400).json({
         message: "Nome, login e senha são obrigatórios."
       })
@@ -42,7 +49,7 @@ export async function createUser(req: any, res: any) {
 
     const user = await prisma.usuario.create({
       data: {
-        nome: name,
+        nome: name.trim(),
         login: normalizedLogin,
         senhaHash: passwordHash,
         perfil: "ORIENTADOR"
@@ -179,7 +186,12 @@ export async function updateUser(req: any, res: any) {
       })
     }
 
-    if (!name || !login) {
+    if (
+      typeof name !== "string" ||
+      typeof login !== "string" ||
+      !name.trim() ||
+      !login.trim()
+    ) {
       return res.status(400).json({
         message: "Nome e login são obrigatórios."
       })
@@ -225,7 +237,7 @@ export async function updateUser(req: any, res: any) {
         id: userId
       },
       data: {
-        nome: name,
+        nome: name.trim(),
         login: normalizedLogin
       }
     })
