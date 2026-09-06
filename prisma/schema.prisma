@@ -17,15 +17,58 @@ enum PerfilUsuario {
   ORIENTADOR
 }
 
+enum ScfvActivity {
+  SCFV_0_6
+  SCFV_7_15
+  SCFV_IDOSOS
+}
+
+enum DeactivationType {
+  MANUAL
+  AGE_LIMIT
+}
+
 model Usuario {
-  id        Int           @id @default(autoincrement())
-  nome      String
-  login     String        @unique
-  senhaHash String
-  perfil    PerfilUsuario @default(ORIENTADOR)
-  ativo     Boolean       @default(true)
-  criadoEm  DateTime      @default(now())
-  atualizadoEm DateTime   @updatedAt
+  id           Int           @id @default(autoincrement())
+  nome         String
+  login        String        @unique
+  senhaHash    String
+  perfil       PerfilUsuario @default(ORIENTADOR)
+  ativo        Boolean       @default(true)
+  criadoEm     DateTime      @default(now())
+  atualizadoEm DateTime      @updatedAt
+
+  createdScfvUsers ScfvUser[] @relation("ScfvUserCreatedBy")
+  updatedScfvUsers ScfvUser[] @relation("ScfvUserUpdatedBy")
+}
+
+model ScfvUser {
+  id Int @id @default(autoincrement())
+
+  activity  ScfvActivity
+  name      String
+  cpf       String       @unique @db.VarChar(11)
+  nis       String?      @db.VarChar(11)
+  birthDate DateTime     @db.Date
+
+  photoPath String?
+
+  active           Boolean           @default(true)
+  deactivationType DeactivationType?
+  inactiveReason   String?           @db.VarChar(100)
+  inactiveAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById Int
+  updatedById Int?
+
+  createdBy Usuario @relation("ScfvUserCreatedBy", fields: [createdById], references: [id])
+
+  updatedBy Usuario? @relation("ScfvUserUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([active, activity])
 }
 
 model Session {
