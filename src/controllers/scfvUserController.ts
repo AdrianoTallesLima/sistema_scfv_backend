@@ -1,5 +1,5 @@
 import { prisma } from "../db.js"
-import { determineScfvActivity } from "../utils/age.js"
+import { calculateAge, determineScfvActivity } from "../utils/age.js"
 import { isValidCpf, normalizeCpf } from "../utils/cpf.js"
 
 export async function createScfvUser(req: any, res: any) {
@@ -140,6 +140,62 @@ export async function createScfvUser(req: any, res: any) {
         activity: scfvUser.activity,
         active: scfvUser.active
       }
+    })
+  } catch (error) {
+    console.error(error)
+
+    return res.status(500).json({
+      message: "Erro interno do servidor."
+    })
+  }
+}
+
+export async function listScfvUsers(req: any, res: any) {
+  try {
+    const users = await prisma.scfvUser.findMany({
+      orderBy: {
+        name: "asc"
+      },
+      select: {
+        id: true,
+        activity: true,
+        name: true,
+        cpf: true,
+        nis: true,
+        birthDate: true,
+        active: true,
+        inactiveReason: true,
+        createdAt: true,
+
+        createdBy: {
+          select: {
+            id: true,
+            nome: true
+          }
+        }
+      }
+    })
+
+    const formattedUsers = users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      cpf: user.cpf,
+      nis: user.nis,
+      birthDate: user.birthDate,
+      age: calculateAge(user.birthDate),
+      activity: user.activity,
+      active: user.active,
+      inactiveReason: user.inactiveReason,
+      createdAt: user.createdAt,
+
+      createdBy: {
+        id: user.createdBy.id,
+        name: user.createdBy.nome
+      }
+    }))
+
+    return res.status(200).json({
+      users: formattedUsers
     })
   } catch (error) {
     console.error(error)
