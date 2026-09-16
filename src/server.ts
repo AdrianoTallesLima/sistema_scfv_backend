@@ -6,6 +6,7 @@ import connectPgSimple from "connect-pg-simple"
 import authRoutes from "./routes/authRoutes.js"
 import userRoutes from "./routes/userRoutes.js"
 import scfvUserRoutes from "./routes/scfvUserRoutes.js"
+import dashboardRoutes from "./routes/dashboardRoutes.js"
 import notificationRoutes from "./routes/notificationRoutes.js"
 import { deactivateUsersByAgeLimit } from "./services/scfvAgeService.js"
 
@@ -68,6 +69,7 @@ app.get("/", (req, res) => {
 app.use("/api", authRoutes)
 app.use("/api/users", userRoutes)
 app.use("/api/scfv-users", scfvUserRoutes)
+app.use("/api/dashboard", dashboardRoutes)
 app.use("/api/notifications", notificationRoutes)
 
 const AGE_CHECK_INTERVAL =
