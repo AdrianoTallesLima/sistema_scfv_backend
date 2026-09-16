@@ -644,3 +644,133 @@ export async function updateScfvUser(req: any, res: any) {
     })
   }
 }
+
+export async function changeScfvUserStatus(req: any, res: any) {
+  try {
+    const userId = Number(req.params.id)
+    const { active, reason } = req.body
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return res.status(400).json({
+        message: "ID de usuário inválido."
+      })
+    }
+
+    if (typeof active !== "boolean") {
+      return res.status(400).json({
+        message: "Situação do usuário inválida."
+      })
+    }
+
+    const existingUser = await prisma.scfvUser.findUnique({
+      where: {
+        id: userId
+      }
+    })
+
+    if (!existingUser) {
+      return res.status(404).json({
+        message: "Usuário não encontrado."
+      })
+    }
+
+    // INATIVAÇÃO MANUAL
+    if (active === false) {
+      if (
+        typeof reason !== "string" ||
+        !reason.trim()
+      ) {
+        return res.status(400).json({
+          message:
+            "Informe o motivo da inativação."
+        })
+      }
+
+      const normalizedReason = reason.trim()
+
+      if (normalizedReason.length > 100) {
+        return res.status(400).json({
+          message:
+            "O motivo da inativação deve possuir no máximo 100 caracteres."
+        })
+      }
+
+      const user = await prisma.scfvUser.update({
+        where: {
+          id: userId
+        },
+
+        data: {
+          active: false,
+          deactivationType: "MANUAL",
+          inactiveReason: normalizedReason,
+          inactiveAt: new Date(),
+
+          updatedById: req.session.user.id
+        }
+      })
+
+      return res.status(200).json({
+        message: "Usuário inativado com sucesso.",
+
+        user: {
+          id: user.id,
+          name: user.name,
+          active: user.active,
+          deactivationType: user.deactivationType,
+          inactiveReason: user.inactiveReason,
+          inactiveAt: user.inactiveAt
+        }
+      })
+    }
+
+    // REATIVAÇÃO
+
+    const age = calculateAge(existingUser.birthDate)
+
+    const isChildActivity =
+      existingUser.activity === "SCFV_0_6" ||
+      existingUser.activity === "SCFV_7_15"
+
+    if (isChildActivity && age >= 16) {
+      return res.status(400).json({
+        message:
+          "Não é possível reativar um usuário que atingiu o limite de idade do SCFV."
+      })
+    }
+
+    const user = await prisma.scfvUser.update({
+      where: {
+        id: userId
+      },
+
+      data: {
+        active: true,
+        deactivationType: null,
+        inactiveReason: null,
+        inactiveAt: null,
+
+        updatedById: req.session.user.id
+      }
+    })
+
+    return res.status(200).json({
+      message: "Usuário reativado com sucesso.",
+
+      user: {
+        id: user.id,
+        name: user.name,
+        active: user.active
+      }
+    })
+  } catch (error) {
+    console.error(error)
+
+    return res.status(500).json({
+      message: "Erro interno do servidor."
+    })
+  }
+}
