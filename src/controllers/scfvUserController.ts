@@ -324,3 +324,323 @@ export async function listScfvUsers(req: any, res: any) {
     })
   }
 }
+
+export async function getScfvUserById(req: any, res: any) {
+  try {
+    const userId = Number(req.params.id)
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return res.status(400).json({
+        message: "ID de usuário inválido."
+      })
+    }
+
+    const user = await prisma.scfvUser.findUnique({
+      where: {
+        id: userId
+      },
+
+      select: {
+        id: true,
+        activity: true,
+        name: true,
+        cpf: true,
+        nis: true,
+        birthDate: true,
+        photoPath: true,
+
+        active: true,
+        deactivationType: true,
+        inactiveReason: true,
+        inactiveAt: true,
+
+        createdAt: true,
+        updatedAt: true,
+
+        createdBy: {
+          select: {
+            id: true,
+            nome: true
+          }
+        },
+
+        updatedBy: {
+          select: {
+            id: true,
+            nome: true
+          }
+        }
+      }
+    })
+
+    if (!user) {
+      return res.status(404).json({
+        message: "Usuário não encontrado."
+      })
+    }
+
+    return res.status(200).json({
+      user: {
+        id: user.id,
+        name: user.name,
+        cpf: user.cpf,
+        nis: user.nis,
+        birthDate: user.birthDate,
+        age: calculateAge(user.birthDate),
+        activity: user.activity,
+        photoPath: user.photoPath,
+
+        active: user.active,
+        deactivationType: user.deactivationType,
+        inactiveReason: user.inactiveReason,
+        inactiveAt: user.inactiveAt,
+
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+
+        createdBy: {
+          id: user.createdBy.id,
+          name: user.createdBy.nome
+        },
+
+        updatedBy: user.updatedBy
+          ? {
+              id: user.updatedBy.id,
+              name: user.updatedBy.nome
+            }
+          : null
+      }
+    })
+  } catch (error) {
+    console.error(error)
+
+    return res.status(500).json({
+      message: "Erro interno do servidor."
+    })
+  }
+}
+
+export async function updateScfvUser(req: any, res: any) {
+  try {
+    const userId = Number(req.params.id)
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return res.status(400).json({
+        message: "ID de usuário inválido."
+      })
+    }
+
+    const existingUser = await prisma.scfvUser.findUnique({
+      where: {
+        id: userId
+      }
+    })
+
+    if (!existingUser) {
+      return res.status(404).json({
+        message: "Usuário não encontrado."
+      })
+    }
+
+    const {
+      category,
+      name,
+      cpf,
+      nis,
+      birthDate
+    } = req.body
+
+    // Categoria atual caso ela não seja enviada
+    const currentCategory =
+      existingUser.activity === "SCFV_IDOSOS"
+        ? "ELDERLY"
+        : "CHILDREN"
+
+    const finalCategory =
+      category !== undefined
+        ? category
+        : currentCategory
+
+    if (
+      finalCategory !== "CHILDREN" &&
+      finalCategory !== "ELDERLY"
+    ) {
+      return res.status(400).json({
+        message: "Atividade proposta inválida."
+      })
+    }
+
+    // Nome
+    let finalName = existingUser.name
+
+    if (name !== undefined) {
+      if (
+        typeof name !== "string" ||
+        !name.trim()
+      ) {
+        return res.status(400).json({
+          message: "Nome inválido."
+        })
+      }
+
+      finalName = name.trim()
+    }
+
+    // CPF
+    let finalCpf = existingUser.cpf
+
+    if (cpf !== undefined) {
+      if (typeof cpf !== "string") {
+        return res.status(400).json({
+          message: "CPF inválido."
+        })
+      }
+
+      const normalizedCpf = normalizeCpf(cpf)
+
+      if (!isValidCpf(normalizedCpf)) {
+        return res.status(400).json({
+          message: "CPF inválido."
+        })
+      }
+
+      const cpfInUse = await prisma.scfvUser.findFirst({
+        where: {
+          cpf: normalizedCpf,
+          NOT: {
+            id: userId
+          }
+        }
+      })
+
+      if (cpfInUse) {
+        return res.status(409).json({
+          message: "Já existe um usuário cadastrado com este CPF."
+        })
+      }
+
+      finalCpf = normalizedCpf
+    }
+
+    // NIS
+    let finalNis = existingUser.nis
+
+    if (nis !== undefined) {
+      if (
+        nis === null ||
+        nis === ""
+      ) {
+        finalNis = null
+      } else {
+        if (typeof nis !== "string") {
+          return res.status(400).json({
+            message: "NIS inválido."
+          })
+        }
+
+        const normalizedNis = nis.replace(/\D/g, "")
+
+        if (normalizedNis.length !== 11) {
+          return res.status(400).json({
+            message: "O NIS deve possuir 11 dígitos."
+          })
+        }
+
+        finalNis = normalizedNis
+      }
+    }
+
+    // Data de nascimento
+    let finalBirthDate: string | Date =
+      existingUser.birthDate
+
+    if (birthDate !== undefined) {
+      if (
+        typeof birthDate !== "string" ||
+        !birthDate.trim()
+      ) {
+        return res.status(400).json({
+          message: "Data de nascimento inválida."
+        })
+      }
+
+      finalBirthDate = birthDate
+    }
+
+    // Recalcula idade e atividade
+    let ageResult
+
+    try {
+      ageResult = determineScfvActivity(
+        finalCategory,
+        finalBirthDate
+      )
+    } catch (error) {
+      if (error instanceof Error) {
+        return res.status(400).json({
+          message: error.message
+        })
+      }
+
+      return res.status(400).json({
+        message: "Data de nascimento inválida."
+      })
+    }
+
+    if (!ageResult.valid || !ageResult.activity) {
+      return res.status(400).json({
+        message: ageResult.message
+      })
+    }
+
+    const birthDateForDatabase =
+      typeof finalBirthDate === "string"
+        ? new Date(
+            `${finalBirthDate}T00:00:00.000Z`
+          )
+        : finalBirthDate
+
+    const user = await prisma.scfvUser.update({
+      where: {
+        id: userId
+      },
+
+      data: {
+        name: finalName,
+        cpf: finalCpf,
+        nis: finalNis,
+        birthDate: birthDateForDatabase,
+        activity: ageResult.activity,
+
+        updatedById: req.session.user.id
+      }
+    })
+
+    return res.status(200).json({
+      message: "Cadastro atualizado com sucesso.",
+
+      user: {
+        id: user.id,
+        name: user.name,
+        cpf: user.cpf,
+        nis: user.nis,
+        birthDate: user.birthDate,
+        age: ageResult.age,
+        activity: user.activity,
+        active: user.active
+      }
+    })
+  } catch (error) {
+    console.error(error)
+
+    return res.status(500).json({
+      message: "Erro interno do servidor."
+    })
+  }
+}
