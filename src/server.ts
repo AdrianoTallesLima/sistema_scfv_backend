@@ -6,6 +6,7 @@ import connectPgSimple from "connect-pg-simple"
 import authRoutes from "./routes/authRoutes.js"
 import userRoutes from "./routes/userRoutes.js"
 import scfvUserRoutes from "./routes/scfvUserRoutes.js"
+import { deactivateUsersByAgeLimit } from "./services/scfvAgeService.js"
 
 const app = express()
 
@@ -39,6 +40,24 @@ app.use(
   })
 )
 
+async function runAgeLimitCheck() {
+  try {
+    const result =
+      await deactivateUsersByAgeLimit()
+
+    if (result.count > 0) {
+      console.log(
+        `[SCFV] ${result.count} usuário(s) inativado(s) automaticamente por limite de idade.`
+      )
+    }
+  } catch (error) {
+    console.error(
+      "[SCFV] Erro ao verificar limite de idade:",
+      error
+    )
+  }
+}
+
 app.get("/", (req, res) => {
   res.json({
     mensagem: "API do sistema SCFV funcionando!"
@@ -49,6 +68,17 @@ app.use("/api", authRoutes)
 app.use("/api/users", userRoutes)
 app.use("/api/scfv-users", scfvUserRoutes)
 
+const AGE_CHECK_INTERVAL =
+  60 * 60 * 1000
+
 app.listen(3000, () => {
   console.log("Servidor rodando na porta 3000")
+
+  // Verifica imediatamente ao iniciar o servidor.
+  void runAgeLimitCheck()
+
+  // Depois verifica novamente a cada hora.
+  setInterval(() => {
+    void runAgeLimitCheck()
+  }, AGE_CHECK_INTERVAL)
 })
