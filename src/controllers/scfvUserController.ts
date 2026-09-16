@@ -152,10 +152,128 @@ export async function createScfvUser(req: any, res: any) {
 
 export async function listScfvUsers(req: any, res: any) {
   try {
+    const {
+      search,
+      category,
+      activity,
+      active,
+      missingNis
+    } = req.query
+
+    const where: any = {}
+
+    // Busca por nome, CPF ou NIS
+    if (typeof search === "string" && search.trim()) {
+      const searchText = search.trim()
+      const searchDigits = searchText.replace(/\D/g, "")
+
+      where.OR = [
+        {
+          name: {
+            contains: searchText,
+            mode: "insensitive"
+          }
+        }
+      ]
+
+      if (searchDigits) {
+        where.OR.push(
+          {
+            cpf: {
+              contains: searchDigits
+            }
+          },
+          {
+            nis: {
+              contains: searchDigits
+            }
+          }
+        )
+      }
+    }
+
+    // Filtro geral: Crianças ou Idosos
+    if (category !== undefined) {
+      if (
+        category !== "CHILDREN" &&
+        category !== "ELDERLY"
+      ) {
+        return res.status(400).json({
+          message: "Categoria inválida."
+        })
+      }
+
+      if (category === "CHILDREN") {
+        where.activity = {
+          in: [
+            "SCFV_0_6",
+            "SCFV_7_15"
+          ]
+        }
+      }
+
+      if (category === "ELDERLY") {
+        where.activity = "SCFV_IDOSOS"
+      }
+    }
+
+    // Filtro específico por faixa
+    if (activity !== undefined) {
+      if (
+        activity !== "SCFV_0_6" &&
+        activity !== "SCFV_7_15" &&
+        activity !== "SCFV_IDOSOS"
+      ) {
+        return res.status(400).json({
+          message: "Atividade SCFV inválida."
+        })
+      }
+
+      where.activity = activity
+    }
+
+    // Ativos ou inativos
+    if (active !== undefined) {
+      if (
+        active !== "true" &&
+        active !== "false"
+      ) {
+        return res.status(400).json({
+          message:
+            "O filtro de situação selecionado é inválido."
+        })
+      }
+
+      where.active = active === "true"
+    }
+
+    // Usuários com ou sem NIS
+    if (missingNis !== undefined) {
+      if (
+        missingNis !== "true" &&
+        missingNis !== "false"
+      ) {
+        return res.status(400).json({
+          message:
+            "O filtro de NIS selecionado é inválido."
+        })
+      }
+
+      where.nis =
+        missingNis === "true"
+          ? null
+          : {
+              not: null
+            }
+    }
+
     const users = await prisma.scfvUser.findMany({
+      where,
+
       orderBy: {
         name: "asc"
       },
+
       select: {
         id: true,
         activity: true,
@@ -195,6 +313,7 @@ export async function listScfvUsers(req: any, res: any) {
     }))
 
     return res.status(200).json({
+      total: formattedUsers.length,
       users: formattedUsers
     })
   } catch (error) {
