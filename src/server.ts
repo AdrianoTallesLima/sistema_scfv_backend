@@ -8,7 +8,7 @@ import userRoutes from "./routes/userRoutes.js"
 import scfvUserRoutes from "./routes/scfvUserRoutes.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
 import notificationRoutes from "./routes/notificationRoutes.js"
-import { deactivateUsersByAgeLimit } from "./services/scfvAgeService.js"
+import { applyScfvAgeRules } from "./services/scfvAgeService.js"
 
 const app = express()
 
@@ -42,19 +42,29 @@ app.use(
   })
 )
 
-async function runAgeLimitCheck() {
+async function runScfvAgeCheck() {
   try {
     const result =
-      await deactivateUsersByAgeLimit()
+      await applyScfvAgeRules()
 
-    if (result.count > 0) {
+    if (
+      result.reclassified.count > 0
+    ) {
       console.log(
-        `[SCFV] ${result.count} usuário(s) inativado(s) automaticamente por limite de idade.`
+        `[SCFV] ${result.reclassified.count} usuário(s) reclassificado(s) automaticamente de 0–6 para 7–15 anos.`
+      )
+    }
+
+    if (
+      result.deactivated.count > 0
+    ) {
+      console.log(
+        `[SCFV] ${result.deactivated.count} usuário(s) inativado(s) automaticamente por limite de idade.`
       )
     }
   } catch (error) {
     console.error(
-      "[SCFV] Erro ao verificar limite de idade:",
+      "[SCFV] Erro ao aplicar regras automáticas de idade:",
       error
     )
   }
@@ -79,10 +89,10 @@ app.listen(3000, () => {
   console.log("Servidor rodando na porta 3000")
 
   // Verifica imediatamente ao iniciar o servidor.
-  void runAgeLimitCheck()
+  void runScfvAgeCheck()
 
   // Depois verifica novamente a cada hora.
   setInterval(() => {
-    void runAgeLimitCheck()
+    void runScfvAgeCheck()
   }, AGE_CHECK_INTERVAL)
 })
