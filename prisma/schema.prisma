@@ -28,6 +28,12 @@ enum DeactivationType {
   AGE_LIMIT
 }
 
+enum ResponsibleRelationship {
+  PAI
+  MAE
+  OUTRO
+}
+
 model Usuario {
   id           Int           @id @default(autoincrement())
   nome         String
@@ -50,6 +56,8 @@ model ScfvUser {
   cpf       String       @unique @db.VarChar(11)
   nis       String?      @db.VarChar(11)
   birthDate DateTime     @db.Date
+  phone     String?      @db.VarChar(11)
+  address   String?      @db.VarChar(200)
 
   photoPath String?
 
@@ -68,7 +76,60 @@ model ScfvUser {
 
   updatedBy Usuario? @relation("ScfvUserUpdatedBy", fields: [updatedById], references: [id])
 
+  childProfile   ChildProfile?
+  elderlyProfile ElderlyProfile?
+
   @@index([active, activity])
+}
+
+model Responsible {
+  id Int @id @default(autoincrement())
+
+  name  String
+  cpf   String  @unique @db.VarChar(11)
+  phone String? @db.VarChar(11)
+
+  childProfiles ChildProfile[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChildProfile {
+  id Int @id @default(autoincrement())
+
+  scfvUserId Int      @unique
+  scfvUser   ScfvUser @relation(fields: [scfvUserId], references: [id])
+
+  responsibleId Int
+  responsible   Responsible @relation(fields: [responsibleId], references: [id])
+
+  relationship      ResponsibleRelationship
+  relationshipOther String?                 @db.VarChar(50)
+
+  school           String? @db.VarChar(150)
+  grade            String? @db.VarChar(50)
+  schoolClass      String? @db.VarChar(50)
+  schoolAttendance String? @db.VarChar(100)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([responsibleId])
+}
+
+model ElderlyProfile {
+  id Int @id @default(autoincrement())
+
+  scfvUserId Int      @unique
+  scfvUser   ScfvUser @relation(fields: [scfvUserId], references: [id])
+
+  income       Decimal? @db.Decimal(10, 2)
+  situation    String?  @db.VarChar(200)
+  observations String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Session {
