@@ -943,11 +943,22 @@ export async function updateScfvUser(req: any, res: any) {
       })
     }
 
-    const existingUser = await prisma.scfvUser.findUnique({
-      where: {
-        id: userId
-      }
-    })
+    const existingUser =
+      await prisma.scfvUser.findUnique({
+        where: {
+          id: userId
+        },
+
+        include: {
+          childProfile: {
+            include: {
+              responsible: true
+            }
+          },
+
+          elderlyProfile: true
+        }
+      })
 
     if (!existingUser) {
       return res.status(404).json({
@@ -960,30 +971,62 @@ export async function updateScfvUser(req: any, res: any) {
       name,
       cpf,
       nis,
-      birthDate
+      birthDate,
+      phone,
+      address,
+      childProfile,
+      elderlyProfile
     } = req.body
 
-    // Categoria atual caso ela não seja enviada
     const currentCategory =
       existingUser.activity === "SCFV_IDOSOS"
         ? "ELDERLY"
         : "CHILDREN"
 
-    const finalCategory =
-      category !== undefined
-        ? category
-        : currentCategory
+    // O tipo da ficha não pode ser trocado
+    // durante uma simples edição.
+    if (category !== undefined) {
+      if (
+        category !== "CHILDREN" &&
+        category !== "ELDERLY"
+      ) {
+        return res.status(400).json({
+          message: "Atividade proposta inválida."
+        })
+      }
 
+      if (category !== currentCategory) {
+        return res.status(400).json({
+          message:
+            "Não é possível alterar o público do cadastro entre Crianças e Idosos."
+        })
+      }
+    }
+
+    // Evita envio de perfil incompatível.
     if (
-      finalCategory !== "CHILDREN" &&
-      finalCategory !== "ELDERLY"
+      currentCategory === "CHILDREN" &&
+      elderlyProfile !== undefined &&
+      elderlyProfile !== null
     ) {
       return res.status(400).json({
-        message: "Atividade proposta inválida."
+        message:
+          "Dados de idoso não podem ser informados em um cadastro de criança."
       })
     }
 
-    // Nome
+    if (
+      currentCategory === "ELDERLY" &&
+      childProfile !== undefined &&
+      childProfile !== null
+    ) {
+      return res.status(400).json({
+        message:
+          "Dados de criança não podem ser informados em um cadastro de idoso."
+      })
+    }
+
+    // NOME
     let finalName = existingUser.name
 
     if (name !== undefined) {
@@ -1009,7 +1052,8 @@ export async function updateScfvUser(req: any, res: any) {
         })
       }
 
-      const normalizedCpf = normalizeCpf(cpf)
+      const normalizedCpf =
+        normalizeCpf(cpf)
 
       if (!isValidCpf(normalizedCpf)) {
         return res.status(400).json({
@@ -1017,18 +1061,21 @@ export async function updateScfvUser(req: any, res: any) {
         })
       }
 
-      const cpfInUse = await prisma.scfvUser.findFirst({
-        where: {
-          cpf: normalizedCpf,
-          NOT: {
-            id: userId
+      const cpfInUse =
+        await prisma.scfvUser.findFirst({
+          where: {
+            cpf: normalizedCpf,
+
+            NOT: {
+              id: userId
+            }
           }
-        }
-      })
+        })
 
       if (cpfInUse) {
         return res.status(409).json({
-          message: "Já existe um usuário cadastrado com este CPF."
+          message:
+            "Já existe um usuário cadastrado com este CPF."
         })
       }
 
@@ -1051,11 +1098,13 @@ export async function updateScfvUser(req: any, res: any) {
           })
         }
 
-        const normalizedNis = nis.replace(/\D/g, "")
+        const normalizedNis =
+          nis.replace(/\D/g, "")
 
         if (normalizedNis.length !== 11) {
           return res.status(400).json({
-            message: "O NIS deve possuir 11 dígitos."
+            message:
+              "O NIS deve possuir 11 dígitos."
           })
         }
 
@@ -1063,7 +1112,7 @@ export async function updateScfvUser(req: any, res: any) {
       }
     }
 
-    // Data de nascimento
+    // DATA DE NASCIMENTO
     let finalBirthDate: string | Date =
       existingUser.birthDate
 
@@ -1073,19 +1122,74 @@ export async function updateScfvUser(req: any, res: any) {
         !birthDate.trim()
       ) {
         return res.status(400).json({
-          message: "Data de nascimento inválida."
+          message:
+            "Data de nascimento inválida."
         })
       }
 
       finalBirthDate = birthDate
     }
 
-    // Recalcula idade e atividade
+    // CELULAR
+    let finalPhone = existingUser.phone
+
+    if (phone !== undefined) {
+      if (
+        typeof phone !== "string" ||
+        !phone.trim()
+      ) {
+        return res.status(400).json({
+          message: "Celular inválido."
+        })
+      }
+
+      const normalizedPhone =
+        normalizePhone(phone)
+
+      if (!isValidPhone(normalizedPhone)) {
+        return res.status(400).json({
+          message:
+            "Celular inválido. Informe um número com DDD."
+        })
+      }
+
+      finalPhone = normalizedPhone
+    }
+
+    // ENDEREÇO
+    let finalAddress = existingUser.address
+
+    if (address !== undefined) {
+      if (
+        typeof address !== "string" ||
+        !address.trim()
+      ) {
+        return res.status(400).json({
+          message: "Endereço inválido."
+        })
+      }
+
+      const normalizedAddress =
+        address.trim()
+
+      if (
+        normalizedAddress.length > 200
+      ) {
+        return res.status(400).json({
+          message:
+            "O endereço deve possuir no máximo 200 caracteres."
+        })
+      }
+
+      finalAddress = normalizedAddress
+    }
+
+    // Recalcula idade e faixa.
     let ageResult
 
     try {
       ageResult = determineScfvActivity(
-        finalCategory,
+        currentCategory,
         finalBirthDate
       )
     } catch (error) {
@@ -1096,58 +1200,765 @@ export async function updateScfvUser(req: any, res: any) {
       }
 
       return res.status(400).json({
-        message: "Data de nascimento inválida."
+        message:
+          "Data de nascimento inválida."
       })
     }
 
-    if (!ageResult.valid || !ageResult.activity) {
+    if (
+      !ageResult.valid ||
+      !ageResult.activity
+    ) {
       return res.status(400).json({
         message: ageResult.message
       })
     }
 
+    const activity = ageResult.activity
+
     const birthDateForDatabase =
       typeof finalBirthDate === "string"
         ? new Date(
-            `${finalBirthDate}T00:00:00.000Z`
-          )
+          `${finalBirthDate}T00:00:00.000Z`
+        )
         : finalBirthDate
 
-    const user = await prisma.scfvUser.update({
-      where: {
-        id: userId
-      },
-
-      data: {
-        name: finalName,
-        cpf: finalCpf,
-        nis: finalNis,
-        birthDate: birthDateForDatabase,
-        activity: ageResult.activity,
-
-        updatedById: req.session.user.id
+    // Auxiliar para campos opcionais.
+    const normalizeOptionalText = (
+      value: any,
+      currentValue:
+        string | null | undefined,
+      maxLength: number,
+      label: string
+    ) => {
+      if (value === undefined) {
+        return {
+          value: currentValue ?? null,
+          error: null
+        }
       }
-    })
+
+      if (
+        value === null ||
+        value === ""
+      ) {
+        return {
+          value: null,
+          error: null
+        }
+      }
+
+      if (typeof value !== "string") {
+        return {
+          value: null,
+          error: `${label} inválido.`
+        }
+      }
+
+      const normalized = value.trim()
+
+      if (!normalized) {
+        return {
+          value: null,
+          error: null
+        }
+      }
+
+      if (
+        normalized.length > maxLength
+      ) {
+        return {
+          value: null,
+          error:
+            `${label} deve possuir no máximo ${maxLength} caracteres.`
+        }
+      }
+
+      return {
+        value: normalized,
+        error: null
+      }
+    }
+
+    let normalizedChildProfile: any = null
+
+    if (
+      currentCategory === "CHILDREN" &&
+      childProfile !== undefined
+    ) {
+      if (
+        !childProfile ||
+        typeof childProfile !== "object" ||
+        Array.isArray(childProfile)
+      ) {
+        return res.status(400).json({
+          message:
+            "Dados da ficha da criança inválidos."
+        })
+      }
+
+      const {
+        responsible,
+        relationship,
+        relationshipOther,
+        school,
+        grade,
+        schoolClass,
+        schoolAttendance
+      } = childProfile
+
+      const currentResponsible =
+        existingUser.childProfile
+          ?.responsible
+
+      let finalResponsibleName =
+        currentResponsible?.name ?? null
+
+      let finalResponsibleCpf =
+        currentResponsible?.cpf ?? null
+
+      let finalResponsiblePhone =
+        currentResponsible?.phone ?? null
+
+      if (responsible !== undefined) {
+        if (
+          !responsible ||
+          typeof responsible !== "object" ||
+          Array.isArray(responsible)
+        ) {
+          return res.status(400).json({
+            message:
+              "Dados do responsável inválidos."
+          })
+        }
+
+        if (responsible.name !== undefined) {
+          if (
+            typeof responsible.name !==
+            "string" ||
+            !responsible.name.trim()
+          ) {
+            return res.status(400).json({
+              message:
+                "Nome do responsável inválido."
+            })
+          }
+
+          finalResponsibleName =
+            responsible.name.trim()
+        }
+
+        if (responsible.cpf !== undefined) {
+          if (
+            typeof responsible.cpf !==
+            "string"
+          ) {
+            return res.status(400).json({
+              message:
+                "CPF do responsável inválido."
+            })
+          }
+
+          const normalizedResponsibleCpf =
+            normalizeCpf(
+              responsible.cpf
+            )
+
+          if (
+            !isValidCpf(
+              normalizedResponsibleCpf
+            )
+          ) {
+            return res.status(400).json({
+              message:
+                "CPF do responsável inválido."
+            })
+          }
+
+          finalResponsibleCpf =
+            normalizedResponsibleCpf
+        }
+
+        if (
+          responsible.phone !== undefined
+        ) {
+          if (
+            typeof responsible.phone !==
+            "string" ||
+            !responsible.phone.trim()
+          ) {
+            return res.status(400).json({
+              message:
+                "Celular do responsável inválido."
+            })
+          }
+
+          const normalizedResponsiblePhone =
+            normalizePhone(
+              responsible.phone
+            )
+
+          if (
+            !isValidPhone(
+              normalizedResponsiblePhone
+            )
+          ) {
+            return res.status(400).json({
+              message:
+                "Celular do responsável inválido."
+            })
+          }
+
+          finalResponsiblePhone =
+            normalizedResponsiblePhone
+        }
+      }
+
+      if (
+        !finalResponsibleName ||
+        !finalResponsibleCpf ||
+        !finalResponsiblePhone
+      ) {
+        return res.status(400).json({
+          message:
+            "Nome, CPF e celular do responsável são obrigatórios."
+        })
+      }
+
+      if (
+        finalResponsibleCpf === finalCpf
+      ) {
+        return res.status(400).json({
+          message:
+            "O CPF do responsável deve ser diferente do CPF da criança."
+        })
+      }
+
+      let finalRelationship =
+        existingUser.childProfile
+          ?.relationship
+
+      if (relationship !== undefined) {
+        if (
+          relationship !== "PAI" &&
+          relationship !== "MAE" &&
+          relationship !== "OUTRO"
+        ) {
+          return res.status(400).json({
+            message:
+              "Relação com o responsável inválida."
+          })
+        }
+
+        finalRelationship = relationship
+      }
+
+      if (!finalRelationship) {
+        return res.status(400).json({
+          message:
+            "Informe a relação do responsável com a criança."
+        })
+      }
+
+      let finalRelationshipOther =
+        existingUser.childProfile
+          ?.relationshipOther ?? null
+
+      if (
+        finalRelationship === "OUTRO"
+      ) {
+        if (
+          relationshipOther !== undefined
+        ) {
+          if (
+            typeof relationshipOther !==
+            "string" ||
+            !relationshipOther.trim()
+          ) {
+            return res.status(400).json({
+              message:
+                "Informe qual é a relação do responsável com a criança."
+            })
+          }
+
+          finalRelationshipOther =
+            relationshipOther.trim()
+
+          if (
+            finalRelationshipOther.length >
+            50
+          ) {
+            return res.status(400).json({
+              message:
+                "A relação com o responsável deve possuir no máximo 50 caracteres."
+            })
+          }
+        }
+
+        if (!finalRelationshipOther) {
+          return res.status(400).json({
+            message:
+              "Informe qual é a relação do responsável com a criança."
+          })
+        }
+      } else {
+        finalRelationshipOther = null
+      }
+
+      const schoolResult =
+        normalizeOptionalText(
+          school,
+          existingUser.childProfile?.school,
+          150,
+          "Escola"
+        )
+
+      if (schoolResult.error) {
+        return res.status(400).json({
+          message: schoolResult.error
+        })
+      }
+
+      const gradeResult =
+        normalizeOptionalText(
+          grade,
+          existingUser.childProfile?.grade,
+          50,
+          "Série"
+        )
+
+      if (gradeResult.error) {
+        return res.status(400).json({
+          message: gradeResult.error
+        })
+      }
+
+      const classResult =
+        normalizeOptionalText(
+          schoolClass,
+          existingUser.childProfile
+            ?.schoolClass,
+          50,
+          "Turma"
+        )
+
+      if (classResult.error) {
+        return res.status(400).json({
+          message: classResult.error
+        })
+      }
+
+      const attendanceResult =
+        normalizeOptionalText(
+          schoolAttendance,
+          existingUser.childProfile
+            ?.schoolAttendance,
+          100,
+          "Frequência escolar"
+        )
+
+      if (attendanceResult.error) {
+        return res.status(400).json({
+          message:
+            attendanceResult.error
+        })
+      }
+
+      normalizedChildProfile = {
+        responsible: {
+          name: finalResponsibleName,
+          cpf: finalResponsibleCpf,
+          phone: finalResponsiblePhone
+        },
+
+        relationship:
+          finalRelationship,
+
+        relationshipOther:
+          finalRelationshipOther,
+
+        school: schoolResult.value,
+        grade: gradeResult.value,
+
+        schoolClass:
+          classResult.value,
+
+        schoolAttendance:
+          attendanceResult.value
+      }
+    }
+
+    let normalizedElderlyProfile: any =
+      null
+
+    if (
+      currentCategory === "ELDERLY" &&
+      elderlyProfile !== undefined
+    ) {
+      if (
+        !elderlyProfile ||
+        typeof elderlyProfile !== "object" ||
+        Array.isArray(elderlyProfile)
+      ) {
+        return res.status(400).json({
+          message:
+            "Dados da ficha do idoso inválidos."
+        })
+      }
+
+      const {
+        situation,
+        observations
+      } = elderlyProfile
+
+      const situationResult =
+        normalizeOptionalText(
+          situation,
+          existingUser.elderlyProfile
+            ?.situation,
+          200,
+          "Situação"
+        )
+
+      if (situationResult.error) {
+        return res.status(400).json({
+          message: situationResult.error
+        })
+      }
+
+      let finalObservations =
+        existingUser.elderlyProfile
+          ?.observations ?? null
+
+      if (observations !== undefined) {
+        if (
+          observations === null ||
+          observations === ""
+        ) {
+          finalObservations = null
+        } else {
+          if (
+            typeof observations !==
+            "string"
+          ) {
+            return res.status(400).json({
+              message:
+                "Observações inválidas."
+            })
+          }
+
+          finalObservations =
+            observations.trim() || null
+        }
+      }
+
+      normalizedElderlyProfile = {
+        situation:
+          situationResult.value,
+
+        observations:
+          finalObservations
+      }
+    }
+
+    const updatedUser =
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.scfvUser.update({
+            where: {
+              id: userId
+            },
+
+            data: {
+              name: finalName,
+              cpf: finalCpf,
+              nis: finalNis,
+
+              birthDate:
+                birthDateForDatabase,
+
+              activity,
+              phone: finalPhone,
+              address: finalAddress,
+
+              updatedById:
+                req.session.user.id
+            }
+          })
+
+          if (
+            currentCategory ===
+            "CHILDREN" &&
+            normalizedChildProfile
+          ) {
+            const responsible =
+              await tx.responsible.upsert({
+                where: {
+                  cpf:
+                    normalizedChildProfile
+                      .responsible.cpf
+                },
+
+                update: {
+                  name:
+                    normalizedChildProfile
+                      .responsible.name,
+
+                  phone:
+                    normalizedChildProfile
+                      .responsible.phone
+                },
+
+                create: {
+                  name:
+                    normalizedChildProfile
+                      .responsible.name,
+
+                  cpf:
+                    normalizedChildProfile
+                      .responsible.cpf,
+
+                  phone:
+                    normalizedChildProfile
+                      .responsible.phone
+                }
+              })
+
+            await tx.childProfile.upsert({
+              where: {
+                scfvUserId: userId
+              },
+
+              update: {
+                responsibleId:
+                  responsible.id,
+
+                relationship:
+                  normalizedChildProfile
+                    .relationship,
+
+                relationshipOther:
+                  normalizedChildProfile
+                    .relationshipOther,
+
+                school:
+                  normalizedChildProfile
+                    .school,
+
+                grade:
+                  normalizedChildProfile
+                    .grade,
+
+                schoolClass:
+                  normalizedChildProfile
+                    .schoolClass,
+
+                schoolAttendance:
+                  normalizedChildProfile
+                    .schoolAttendance
+              },
+
+              create: {
+                scfvUserId: userId,
+
+                responsibleId:
+                  responsible.id,
+
+                relationship:
+                  normalizedChildProfile
+                    .relationship,
+
+                relationshipOther:
+                  normalizedChildProfile
+                    .relationshipOther,
+
+                school:
+                  normalizedChildProfile
+                    .school,
+
+                grade:
+                  normalizedChildProfile
+                    .grade,
+
+                schoolClass:
+                  normalizedChildProfile
+                    .schoolClass,
+
+                schoolAttendance:
+                  normalizedChildProfile
+                    .schoolAttendance
+              }
+            })
+          }
+
+          if (
+            currentCategory ===
+            "ELDERLY" &&
+            normalizedElderlyProfile
+          ) {
+            await tx.elderlyProfile.upsert({
+              where: {
+                scfvUserId: userId
+              },
+
+              update: {
+                situation:
+                  normalizedElderlyProfile
+                    .situation,
+
+                observations:
+                  normalizedElderlyProfile
+                    .observations
+              },
+
+              create: {
+                scfvUserId: userId,
+
+                situation:
+                  normalizedElderlyProfile
+                    .situation,
+
+                observations:
+                  normalizedElderlyProfile
+                    .observations
+              }
+            })
+          }
+
+          return tx.scfvUser.findUnique({
+            where: {
+              id: userId
+            },
+
+            include: {
+              childProfile: {
+                include: {
+                  responsible: true
+                }
+              },
+
+              elderlyProfile: true
+            }
+          })
+        }
+      )
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        message: "Usuário não encontrado."
+      })
+    }
 
     return res.status(200).json({
-      message: "Cadastro atualizado com sucesso.",
+      message:
+        "Cadastro atualizado com sucesso.",
 
       user: {
-        id: user.id,
-        name: user.name,
-        cpf: user.cpf,
-        nis: user.nis,
-        birthDate: user.birthDate,
-        age: ageResult.age,
-        activity: user.activity,
-        active: user.active
+        id: updatedUser.id,
+        name: updatedUser.name,
+        cpf: updatedUser.cpf,
+        nis: updatedUser.nis,
+
+        birthDate:
+          updatedUser.birthDate,
+
+        age:
+          calculateAge(
+            updatedUser.birthDate
+          ),
+
+        activity:
+          updatedUser.activity,
+
+        phone: updatedUser.phone,
+        address: updatedUser.address,
+        active: updatedUser.active,
+
+        childProfile:
+          updatedUser.childProfile
+            ? {
+              id:
+                updatedUser
+                  .childProfile.id,
+
+              relationship:
+                updatedUser
+                  .childProfile
+                  .relationship,
+
+              relationshipOther:
+                updatedUser
+                  .childProfile
+                  .relationshipOther,
+
+              school:
+                updatedUser
+                  .childProfile.school,
+
+              grade:
+                updatedUser
+                  .childProfile.grade,
+
+              schoolClass:
+                updatedUser
+                  .childProfile
+                  .schoolClass,
+
+              schoolAttendance:
+                updatedUser
+                  .childProfile
+                  .schoolAttendance,
+
+              responsible: {
+                id:
+                  updatedUser
+                    .childProfile
+                    .responsible.id,
+
+                name:
+                  updatedUser
+                    .childProfile
+                    .responsible.name,
+
+                cpf:
+                  updatedUser
+                    .childProfile
+                    .responsible.cpf,
+
+                phone:
+                  updatedUser
+                    .childProfile
+                    .responsible.phone
+              }
+            }
+            : null,
+
+        elderlyProfile:
+          updatedUser.elderlyProfile
+            ? {
+              id:
+                updatedUser
+                  .elderlyProfile.id,
+
+              situation:
+                updatedUser
+                  .elderlyProfile
+                  .situation,
+
+              observations:
+                updatedUser
+                  .elderlyProfile
+                  .observations
+            }
+            : null
       }
     })
   } catch (error) {
     console.error(error)
 
     return res.status(500).json({
-      message: "Erro interno do servidor."
+      message:
+        "Erro interno do servidor."
     })
   }
 }
