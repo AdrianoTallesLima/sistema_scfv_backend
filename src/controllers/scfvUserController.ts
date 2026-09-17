@@ -1,6 +1,7 @@
 import { prisma } from "../db.js"
 import { calculateAge, determineScfvActivity } from "../utils/age.js"
 import { isValidCpf, normalizeCpf } from "../utils/cpf.js"
+import { isValidPhone, normalizePhone } from "../utils/phone.js"
 
 export async function createScfvUser(req: any, res: any) {
   try {
@@ -9,26 +10,33 @@ export async function createScfvUser(req: any, res: any) {
       name,
       cpf,
       nis,
-      birthDate
+      birthDate,
+      phone,
+      address,
+      childProfile,
+      elderlyProfile
     } = req.body
 
-    // Campos obrigatórios
+    // DADOS COMUNS OBRIGATÓRIOS
     if (
       typeof category !== "string" ||
       typeof name !== "string" ||
       typeof cpf !== "string" ||
       typeof birthDate !== "string" ||
+      typeof phone !== "string" ||
+      typeof address !== "string" ||
       !name.trim() ||
       !cpf.trim() ||
-      !birthDate.trim()
+      !birthDate.trim() ||
+      !phone.trim() ||
+      !address.trim()
     ) {
       return res.status(400).json({
         message:
-          "Atividade proposta, nome, CPF e data de nascimento são obrigatórios."
+          "Atividade proposta, nome, CPF, data de nascimento, telefone e endereço são obrigatórios."
       })
     }
 
-    // A interface terá somente Crianças ou Idosos
     if (
       category !== "CHILDREN" &&
       category !== "ELDERLY"
@@ -40,15 +48,30 @@ export async function createScfvUser(req: any, res: any) {
 
     const normalizedName = name.trim()
     const normalizedCpf = normalizeCpf(cpf)
+    const normalizedPhone = normalizePhone(phone)
+    const normalizedAddress = address.trim()
 
-    // Validação real do CPF
     if (!isValidCpf(normalizedCpf)) {
       return res.status(400).json({
         message: "CPF inválido."
       })
     }
 
-    // Impede CPF duplicado
+    if (!isValidPhone(normalizedPhone)) {
+      return res.status(400).json({
+        message:
+          "Telefone inválido. Informe um número com DDD."
+      })
+    }
+
+    if (normalizedAddress.length > 200) {
+      return res.status(400).json({
+        message:
+          "O endereço deve possuir no máximo 200 caracteres."
+      })
+    }
+
+    // IMPEDE CPF DUPLICADO
     const existingCpf = await prisma.scfvUser.findUnique({
       where: {
         cpf: normalizedCpf
@@ -57,11 +80,12 @@ export async function createScfvUser(req: any, res: any) {
 
     if (existingCpf) {
       return res.status(409).json({
-        message: "Já existe um usuário cadastrado com este CPF."
+        message:
+          "Já existe um usuário cadastrado com este CPF."
       })
     }
 
-    // NIS é opcional
+    // NIS OPCIONAL
     let normalizedNis: string | null = null
 
     if (
@@ -79,12 +103,13 @@ export async function createScfvUser(req: any, res: any) {
 
       if (normalizedNis.length !== 11) {
         return res.status(400).json({
-          message: "O NIS deve possuir 11 dígitos."
+          message:
+            "O NIS deve possuir 11 dígitos."
         })
       }
     }
 
-    // Calcula idade e determina automaticamente a faixa do SCFV
+    // IDADE E FAIXA SCFV
     let ageResult
 
     try {
@@ -104,54 +129,498 @@ export async function createScfvUser(req: any, res: any) {
       })
     }
 
-    if (!ageResult.valid || !ageResult.activity) {
+    if (
+      !ageResult.valid ||
+      !ageResult.activity
+    ) {
       return res.status(400).json({
         message: ageResult.message
       })
     }
 
-    // O age.ts já validou YYYY-MM-DD.
-    // Criamos a data em UTC para evitar deslocamento de dia.
+    const activity = ageResult.activity
+
     const birthDateForDatabase = new Date(
       `${birthDate}T00:00:00.000Z`
     )
 
-    const scfvUser = await prisma.scfvUser.create({
-      data: {
-        activity: ageResult.activity,
-        name: normalizedName,
-        cpf: normalizedCpf,
-        nis: normalizedNis,
-        birthDate: birthDateForDatabase,
+    // DADOS ESPECÍFICOS DA CRIANÇA
+    let normalizedChildProfile: any = null
 
-        createdById: req.session.user.id
+    if (category === "CHILDREN") {
+      if (
+        !childProfile ||
+        typeof childProfile !== "object" ||
+        Array.isArray(childProfile)
+      ) {
+        return res.status(400).json({
+          message:
+            "Os dados da ficha da criança são obrigatórios."
+        })
       }
-    })
+
+      const {
+        responsible,
+        relationship,
+        relationshipOther,
+        school,
+        grade,
+        schoolClass,
+        schoolAttendance
+      } = childProfile
+
+      if (
+        !responsible ||
+        typeof responsible !== "object" ||
+        Array.isArray(responsible)
+      ) {
+        return res.status(400).json({
+          message:
+            "Os dados do responsável são obrigatórios."
+        })
+      }
+
+      const {
+        name: responsibleName,
+        cpf: responsibleCpf,
+        phone: responsiblePhone
+      } = responsible
+
+      if (
+        typeof responsibleName !== "string" ||
+        typeof responsibleCpf !== "string" ||
+        typeof responsiblePhone !== "string" ||
+        !responsibleName.trim() ||
+        !responsibleCpf.trim() ||
+        !responsiblePhone.trim()
+      ) {
+        return res.status(400).json({
+          message:
+            "Nome, CPF e telefone do responsável são obrigatórios."
+        })
+      }
+
+      const normalizedResponsibleCpf =
+        normalizeCpf(responsibleCpf)
+
+      const normalizedResponsiblePhone =
+        normalizePhone(responsiblePhone)
+
+      if (
+        !isValidCpf(normalizedResponsibleCpf)
+      ) {
+        return res.status(400).json({
+          message:
+            "CPF do responsável inválido."
+        })
+      }
+
+      if (
+        normalizedResponsibleCpf ===
+        normalizedCpf
+      ) {
+        return res.status(400).json({
+          message:
+            "O CPF do responsável deve ser diferente do CPF da criança."
+        })
+      }
+
+      if (
+        !isValidPhone(
+          normalizedResponsiblePhone
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Telefone do responsável inválido."
+        })
+      }
+
+      if (
+        relationship !== "PAI" &&
+        relationship !== "MAE" &&
+        relationship !== "OUTRO"
+      ) {
+        return res.status(400).json({
+          message:
+            "Relação com o responsável inválida."
+        })
+      }
+
+      let normalizedRelationshipOther:
+        string | null = null
+
+      if (relationship === "OUTRO") {
+        if (
+          typeof relationshipOther !== "string" ||
+          !relationshipOther.trim()
+        ) {
+          return res.status(400).json({
+            message:
+              "Informe qual é a relação do responsável com a criança."
+          })
+        }
+
+        normalizedRelationshipOther =
+          relationshipOther.trim()
+
+        if (
+          normalizedRelationshipOther.length >
+          50
+        ) {
+          return res.status(400).json({
+            message:
+              "A relação com o responsável deve possuir no máximo 50 caracteres."
+          })
+        }
+      }
+
+      const schoolFields = [
+        {
+          label: "Escola",
+          value: school,
+          maxLength: 150
+        },
+        {
+          label: "Série",
+          value: grade,
+          maxLength: 50
+        },
+        {
+          label: "Turma",
+          value: schoolClass,
+          maxLength: 50
+        },
+        {
+          label: "Frequência escolar",
+          value: schoolAttendance,
+          maxLength: 100
+        }
+      ]
+
+      for (const field of schoolFields) {
+        if (
+          field.value === undefined ||
+          field.value === null ||
+          field.value === ""
+        ) {
+          continue
+        }
+
+        if (typeof field.value !== "string") {
+          return res.status(400).json({
+            message: `${field.label} inválido.`
+          })
+        }
+
+        if (
+          field.value.trim().length >
+          field.maxLength
+        ) {
+          return res.status(400).json({
+            message:
+              `${field.label} deve possuir no máximo ${field.maxLength} caracteres.`
+          })
+        }
+      }
+
+      const normalizeSchoolField = (
+        value: any
+      ) => {
+        if (typeof value !== "string") {
+          return null
+        }
+
+        const normalized = value.trim()
+
+        return normalized || null
+      }
+
+      normalizedChildProfile = {
+        responsible: {
+          name: responsibleName.trim(),
+          cpf: normalizedResponsibleCpf,
+          phone: normalizedResponsiblePhone
+        },
+
+        relationship,
+        relationshipOther:
+          normalizedRelationshipOther,
+
+        school:
+          normalizeSchoolField(school),
+
+        grade:
+          normalizeSchoolField(grade),
+
+        schoolClass:
+          normalizeSchoolField(schoolClass),
+
+        schoolAttendance:
+          normalizeSchoolField(
+            schoolAttendance
+          )
+      }
+    }
+    // DADOS ESPECÍFICOS DO IDOSO
+    let normalizedElderlyProfile: any = null
+
+    if (category === "ELDERLY") {
+      if (
+        !elderlyProfile ||
+        typeof elderlyProfile !== "object" ||
+        Array.isArray(elderlyProfile)
+      ) {
+        return res.status(400).json({
+          message:
+            "Os dados da ficha do idoso são obrigatórios."
+        })
+      }
+
+      const {
+        situation,
+        observations
+      } = elderlyProfile
+
+      let normalizedSituation:
+        string | null = null
+
+      if (
+        situation !== undefined &&
+        situation !== null &&
+        situation !== ""
+      ) {
+        if (typeof situation !== "string") {
+          return res.status(400).json({
+            message: "Situação inválida."
+          })
+        }
+
+        normalizedSituation =
+          situation.trim()
+
+        if (
+          normalizedSituation.length > 200
+        ) {
+          return res.status(400).json({
+            message:
+              "A situação deve possuir no máximo 200 caracteres."
+          })
+        }
+      }
+
+      let normalizedObservations:
+        string | null = null
+
+      if (
+        observations !== undefined &&
+        observations !== null &&
+        observations !== ""
+      ) {
+        if (
+          typeof observations !== "string"
+        ) {
+          return res.status(400).json({
+            message:
+              "Observações inválidas."
+          })
+        }
+
+        normalizedObservations =
+          observations.trim() || null
+      }
+
+      normalizedElderlyProfile = {
+        situation: normalizedSituation,
+        observations:
+          normalizedObservations
+      }
+    }
+
+    // TRANSAÇÃO:
+    // ou salva a ficha inteira,
+    // ou não salva nada.
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const scfvUser =
+          await tx.scfvUser.create({
+            data: {
+              activity,
+
+              name: normalizedName,
+              cpf: normalizedCpf,
+              nis: normalizedNis,
+
+              birthDate:
+                birthDateForDatabase,
+
+              phone: normalizedPhone,
+              address:
+                normalizedAddress,
+
+              createdById:
+                req.session.user.id
+            }
+          })
+
+        if (
+          category === "CHILDREN" &&
+          normalizedChildProfile
+        ) {
+          const responsible =
+            await tx.responsible.upsert({
+              where: {
+                cpf:
+                  normalizedChildProfile
+                    .responsible.cpf
+              },
+
+              update: {
+                name:
+                  normalizedChildProfile
+                    .responsible.name,
+
+                phone:
+                  normalizedChildProfile
+                    .responsible.phone
+              },
+
+              create: {
+                name:
+                  normalizedChildProfile
+                    .responsible.name,
+
+                cpf:
+                  normalizedChildProfile
+                    .responsible.cpf,
+
+                phone:
+                  normalizedChildProfile
+                    .responsible.phone
+              }
+            })
+
+          const profile =
+            await tx.childProfile.create({
+              data: {
+                scfvUserId:
+                  scfvUser.id,
+
+                responsibleId:
+                  responsible.id,
+
+                relationship:
+                  normalizedChildProfile
+                    .relationship,
+
+                relationshipOther:
+                  normalizedChildProfile
+                    .relationshipOther,
+
+                school:
+                  normalizedChildProfile
+                    .school,
+
+                grade:
+                  normalizedChildProfile
+                    .grade,
+
+                schoolClass:
+                  normalizedChildProfile
+                    .schoolClass,
+
+                schoolAttendance:
+                  normalizedChildProfile
+                    .schoolAttendance
+              }
+            })
+
+          return {
+            scfvUser,
+            childProfile: {
+              ...profile,
+
+              responsible: {
+                id: responsible.id,
+                name: responsible.name,
+                cpf: responsible.cpf,
+                phone: responsible.phone
+              }
+            },
+
+            elderlyProfile: null
+          }
+        }
+
+        const profile =
+          await tx.elderlyProfile.create({
+            data: {
+              scfvUserId:
+                scfvUser.id,
+
+              situation:
+                normalizedElderlyProfile
+                  .situation,
+
+              observations:
+                normalizedElderlyProfile
+                  .observations
+            }
+          })
+
+        return {
+          scfvUser,
+          childProfile: null,
+          elderlyProfile: profile
+        }
+      }
+    )
 
     return res.status(201).json({
-      message: "Usuário cadastrado com sucesso.",
+      message:
+        "Usuário cadastrado com sucesso.",
+
       user: {
-        id: scfvUser.id,
-        name: scfvUser.name,
-        cpf: scfvUser.cpf,
-        nis: scfvUser.nis,
-        birthDate: scfvUser.birthDate,
+        id: result.scfvUser.id,
+        name: result.scfvUser.name,
+        cpf: result.scfvUser.cpf,
+        nis: result.scfvUser.nis,
+        birthDate:
+          result.scfvUser.birthDate,
+
         age: ageResult.age,
-        activity: scfvUser.activity,
-        active: scfvUser.active
+        activity:
+          result.scfvUser.activity,
+
+        phone:
+          result.scfvUser.phone,
+
+        address:
+          result.scfvUser.address,
+
+        active:
+          result.scfvUser.active,
+
+        childProfile:
+          result.childProfile,
+
+        elderlyProfile:
+          result.elderlyProfile
       }
     })
   } catch (error) {
     console.error(error)
 
     return res.status(500).json({
-      message: "Erro interno do servidor."
+      message:
+        "Erro interno do servidor."
     })
   }
 }
 
 export async function listScfvUsers(req: any, res: any) {
   try {
+
     const {
       search,
       category,
@@ -165,19 +634,15 @@ export async function listScfvUsers(req: any, res: any) {
     // Busca por nome, CPF ou NIS
     if (typeof search === "string" && search.trim()) {
       const searchText = search.trim()
-      const searchDigits = searchText.replace(/\D/g, "")
 
-      where.OR = [
-        {
-          name: {
-            contains: searchText,
-            mode: "insensitive"
-          }
-        }
-      ]
+      const isDocumentSearch =
+        /^[\d.\-\s]+$/.test(searchText)
 
-      if (searchDigits) {
-        where.OR.push(
+      if (isDocumentSearch) {
+        const searchDigits =
+          searchText.replace(/\D/g, "")
+
+        where.OR = [
           {
             cpf: {
               contains: searchDigits
@@ -188,7 +653,12 @@ export async function listScfvUsers(req: any, res: any) {
               contains: searchDigits
             }
           }
-        )
+        ]
+      } else {
+        where.name = {
+          contains: searchText,
+          mode: "insensitive"
+        }
       }
     }
 
@@ -350,6 +820,8 @@ export async function getScfvUserById(req: any, res: any) {
         cpf: true,
         nis: true,
         birthDate: true,
+        phone: true,
+        address: true,
         photoPath: true,
 
         active: true,
@@ -359,6 +831,35 @@ export async function getScfvUserById(req: any, res: any) {
 
         createdAt: true,
         updatedAt: true,
+
+        childProfile: {
+          select: {
+            id: true,
+            relationship: true,
+            relationshipOther: true,
+            school: true,
+            grade: true,
+            schoolClass: true,
+            schoolAttendance: true,
+
+            responsible: {
+              select: {
+                id: true,
+                name: true,
+                cpf: true,
+                phone: true
+              }
+            }
+          }
+        },
+
+        elderlyProfile: {
+          select: {
+            id: true,
+            situation: true,
+            observations: true
+          }
+        },
 
         createdBy: {
           select: {
@@ -391,12 +892,18 @@ export async function getScfvUserById(req: any, res: any) {
         birthDate: user.birthDate,
         age: calculateAge(user.birthDate),
         activity: user.activity,
+
+        phone: user.phone,
+        address: user.address,
         photoPath: user.photoPath,
 
         active: user.active,
         deactivationType: user.deactivationType,
         inactiveReason: user.inactiveReason,
         inactiveAt: user.inactiveAt,
+
+        childProfile: user.childProfile,
+        elderlyProfile: user.elderlyProfile,
 
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
@@ -408,9 +915,9 @@ export async function getScfvUserById(req: any, res: any) {
 
         updatedBy: user.updatedBy
           ? {
-              id: user.updatedBy.id,
-              name: user.updatedBy.nome
-            }
+            id: user.updatedBy.id,
+            name: user.updatedBy.nome
+          }
           : null
       }
     })

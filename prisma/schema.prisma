@@ -124,9 +124,8 @@ model ElderlyProfile {
   scfvUserId Int      @unique
   scfvUser   ScfvUser @relation(fields: [scfvUserId], references: [id])
 
-  income       Decimal? @db.Decimal(10, 2)
-  situation    String?  @db.VarChar(200)
-  observations String?  @db.Text
+  situation    String? @db.VarChar(200)
+  observations String? @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
