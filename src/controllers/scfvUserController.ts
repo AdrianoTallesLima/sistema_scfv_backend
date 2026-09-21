@@ -1031,11 +1031,14 @@ export async function listScfvUsers(req: any, res: any) {
       category,
       activity,
       active,
-      missingNis
+      missingNis,
+      age,
+      birthdayMonth
     } = req.query
 
     const where: any = {}
 
+    // BUSCA POR NOME, CPF OU NIS
     if (
       typeof search === "string" &&
       search.trim()
@@ -1069,42 +1072,65 @@ export async function listScfvUsers(req: any, res: any) {
       }
     }
 
-    if (category !== undefined) {
-      if (
-        category !== "CHILDREN" &&
-        category !== "ELDERLY"
-      ) {
-        return res.status(400).json({
-          message: "Categoria inválida."
-        })
-      }
+    // CATEGORIA
+    if (
+      category !== undefined &&
+      category !== "CHILDREN" &&
+      category !== "ELDERLY"
+    ) {
+      return res.status(400).json({
+        message: "Categoria inválida."
+      })
+    }
 
-      if (category === "CHILDREN") {
-        where.activity = {
-          in: [
-            "SCFV_0_6",
-            "SCFV_7_15"
-          ]
-        }
-      } else {
-        where.activity = "SCFV_IDOSOS"
-      }
+    // FAIXA / ATIVIDADE SCFV
+    if (
+      activity !== undefined &&
+      activity !== "SCFV_0_6" &&
+      activity !== "SCFV_7_15" &&
+      activity !== "SCFV_IDOSOS"
+    ) {
+      return res.status(400).json({
+        message: "Atividade SCFV inválida."
+      })
+    }
+
+    // EVITA COMBINAÇÕES IMPOSSÍVEIS
+    if (
+      category === "CHILDREN" &&
+      activity === "SCFV_IDOSOS"
+    ) {
+      return res.status(400).json({
+        message:
+          "A faixa selecionada não pertence à categoria Crianças."
+      })
+    }
+
+    if (
+      category === "ELDERLY" &&
+      activity !== undefined &&
+      activity !== "SCFV_IDOSOS"
+    ) {
+      return res.status(400).json({
+        message:
+          "A faixa selecionada não pertence à categoria Idosos."
+      })
     }
 
     if (activity !== undefined) {
-      if (
-        activity !== "SCFV_0_6" &&
-        activity !== "SCFV_7_15" &&
-        activity !== "SCFV_IDOSOS"
-      ) {
-        return res.status(400).json({
-          message: "Atividade SCFV inválida."
-        })
-      }
-
       where.activity = activity
+    } else if (category === "CHILDREN") {
+      where.activity = {
+        in: [
+          "SCFV_0_6",
+          "SCFV_7_15"
+        ]
+      }
+    } else if (category === "ELDERLY") {
+      where.activity = "SCFV_IDOSOS"
     }
 
+    // ATIVOS / INATIVOS
     if (active !== undefined) {
       if (
         active !== "true" &&
@@ -1119,6 +1145,7 @@ export async function listScfvUsers(req: any, res: any) {
       where.active = active === "true"
     }
 
+    // COM OU SEM NIS
     if (missingNis !== undefined) {
       if (
         missingNis !== "true" &&
@@ -1138,55 +1165,155 @@ export async function listScfvUsers(req: any, res: any) {
             }
     }
 
-    const users = await prisma.scfvUser.findMany({
-      where,
+    // IDADE
+    let ageFilter: number | null = null
 
-      orderBy: {
-        name: "asc"
-      },
+    if (age !== undefined) {
+      if (
+        typeof age !== "string" ||
+        !/^\d+$/.test(age)
+      ) {
+        return res.status(400).json({
+          message:
+            "O filtro de idade selecionado é inválido."
+        })
+      }
 
-      select: {
-        id: true,
-        activity: true,
-        name: true,
-        cpf: true,
-        nis: true,
-        birthDate: true,
-        active: true,
-        inactiveReason: true,
-        createdAt: true,
+      ageFilter = Number(age)
 
-        createdBy: {
-          select: {
-            id: true,
-            nome: true
+      if (
+        ageFilter < 0 ||
+        ageFilter > 130
+      ) {
+        return res.status(400).json({
+          message:
+            "A idade deve estar entre 0 e 130 anos."
+        })
+      }
+    }
+
+    // MÊS DE ANIVERSÁRIO
+    let birthdayMonthFilter:
+      number | null = null
+
+    if (birthdayMonth !== undefined) {
+      if (
+        typeof birthdayMonth !== "string" ||
+        !/^\d+$/.test(birthdayMonth)
+      ) {
+        return res.status(400).json({
+          message:
+            "O mês de aniversário selecionado é inválido."
+        })
+      }
+
+      birthdayMonthFilter =
+        Number(birthdayMonth)
+
+      if (
+        birthdayMonthFilter < 1 ||
+        birthdayMonthFilter > 12
+      ) {
+        return res.status(400).json({
+          message:
+            "O mês de aniversário deve estar entre 1 e 12."
+        })
+      }
+    }
+
+    const users =
+      await prisma.scfvUser.findMany({
+        where,
+
+        orderBy: {
+          name: "asc"
+        },
+
+        select: {
+          id: true,
+          activity: true,
+          name: true,
+          cpf: true,
+          nis: true,
+          birthDate: true,
+          active: true,
+          inactiveReason: true,
+          createdAt: true,
+
+          createdBy: {
+            select: {
+              id: true,
+              nome: true
+            }
           }
         }
-      }
-    })
+      })
 
-    const formattedUsers = users.map((user) => ({
-      id: user.id,
-      category: categoryFromActivity(user.activity),
-      name: user.name,
-      cpf: user.cpf,
-      nis: user.nis,
-      birthDate: user.birthDate,
-      age: calculateAge(user.birthDate),
-      activity: user.activity,
-      active: user.active,
-      inactiveReason: user.inactiveReason,
-      createdAt: user.createdAt,
+    let formattedUsers =
+      users.map((user) => ({
+        id: user.id,
+        category:
+          categoryFromActivity(
+            user.activity
+          ),
 
-      createdBy: {
-        id: user.createdBy.id,
-        name: user.createdBy.nome
-      }
-    }))
+        name: user.name,
+        cpf: user.cpf,
+        nis: user.nis,
+
+        birthDate:
+          user.birthDate,
+
+        age:
+          calculateAge(
+            user.birthDate
+          ),
+
+        activity:
+          user.activity,
+
+        active:
+          user.active,
+
+        inactiveReason:
+          user.inactiveReason,
+
+        createdAt:
+          user.createdAt,
+
+        createdBy: {
+          id: user.createdBy.id,
+          name: user.createdBy.nome
+        }
+      }))
+
+    // FILTRO POR IDADE CALCULADA
+    if (ageFilter !== null) {
+      formattedUsers =
+        formattedUsers.filter(
+          (user) =>
+            user.age === ageFilter
+        )
+    }
+
+    // FILTRO POR MÊS DE ANIVERSÁRIO
+    if (
+      birthdayMonthFilter !== null
+    ) {
+      formattedUsers =
+        formattedUsers.filter(
+          (user) =>
+            user.birthDate.getUTCMonth() + 1 ===
+            birthdayMonthFilter
+        )
+    }
 
     return res.status(200).json({
-      total: formattedUsers.length,
-      users: formattedUsers
+      total:
+        formattedUsers.length,
+
+      users:
+        formattedUsers
     })
   } catch (error) {
     console.error(error)
