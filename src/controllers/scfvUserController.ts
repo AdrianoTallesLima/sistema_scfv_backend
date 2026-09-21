@@ -5,113 +5,509 @@ import { isValidPhone, normalizePhone } from "../utils/phone.js"
 import path from "node:path"
 import fs from "node:fs/promises"
 
+class ValidationError extends Error {}
+
+const RESPONSIBLE_RELATIONSHIPS = [
+  "PAI",
+  "MAE",
+  "OUTRO",
+  "SEM_PARENTESCO"
+]
+
+const SEX_VALUES = [
+  "MALE",
+  "FEMALE"
+]
+
+const ACTIVITY_SHIFT_VALUES = [
+  "MORNING",
+  "AFTERNOON"
+]
+
+const PRIORITY_REASON_VALUES = [
+  "ISOLATION",
+  "CHILD_LABOR",
+  "VIOLENCE_OR_NEGLECT",
+  "OUT_OF_SCHOOL_OR_GRADE_DELAY",
+  "INSTITUTIONAL_CARE",
+  "SOCIOEDUCATIONAL_MEASURE",
+  "SEXUAL_ABUSE_OR_EXPLOITATION",
+  "ECA_PROTECTION_MEASURES",
+  "STREET_SITUATION",
+  "DISABILITY_VULNERABILITY"
+]
+
+function hasField(object: any, field: string) {
+  return Object.prototype.hasOwnProperty.call(object, field)
+}
+
+function requireText(value: any, label: string) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new ValidationError(`${label} é obrigatório.`)
+  }
+
+  return value.trim()
+}
+
+function optionalText(
+  value: any,
+  label: string,
+  maxLength?: number
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null
+  }
+
+  if (typeof value !== "string") {
+    throw new ValidationError(`${label} inválido.`)
+  }
+
+  const normalized = value.trim()
+
+  if (!normalized) {
+    return null
+  }
+
+  if (
+    maxLength !== undefined &&
+    normalized.length > maxLength
+  ) {
+    throw new ValidationError(
+      `${label} deve possuir no máximo ${maxLength} caracteres.`
+    )
+  }
+
+  return normalized
+}
+
+function optionalBoolean(value: any, label: string) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null
+  }
+
+  if (typeof value !== "boolean") {
+    throw new ValidationError(`${label} inválido.`)
+  }
+
+  return value
+}
+
+function normalizeNisValue(value: any, label = "NIS") {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null
+  }
+
+  if (typeof value !== "string") {
+    throw new ValidationError(`${label} inválido.`)
+  }
+
+  const normalized = value.replace(/\D/g, "")
+
+  if (normalized.length !== 11) {
+    throw new ValidationError(
+      `${label} deve possuir 11 dígitos.`
+    )
+  }
+
+  return normalized
+}
+
+function normalizePhoneValue(
+  value: any,
+  label: string,
+  required = false
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    if (required) {
+      throw new ValidationError(`${label} é obrigatório.`)
+    }
+
+    return null
+  }
+
+  if (typeof value !== "string") {
+    throw new ValidationError(`${label} inválido.`)
+  }
+
+  const normalized = normalizePhone(value)
+
+  if (!isValidPhone(normalized)) {
+    throw new ValidationError(
+      `${label} inválido. Informe um número com DDD.`
+    )
+  }
+
+  return normalized
+}
+
+function normalizeZipCode(value: any) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null
+  }
+
+  if (typeof value !== "string") {
+    throw new ValidationError("CEP inválido.")
+  }
+
+  const normalized = value.replace(/\D/g, "")
+
+  if (normalized.length !== 8) {
+    throw new ValidationError(
+      "O CEP deve possuir 8 dígitos."
+    )
+  }
+
+  return normalized
+}
+
+function normalizeSex(value: any) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null
+  }
+
+  if (
+    typeof value !== "string" ||
+    !SEX_VALUES.includes(value)
+  ) {
+    throw new ValidationError("Sexo inválido.")
+  }
+
+  return value
+}
+
+function normalizeActivityShift(value: any) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null
+  }
+
+  if (
+    typeof value !== "string" ||
+    !ACTIVITY_SHIFT_VALUES.includes(value)
+  ) {
+    throw new ValidationError(
+      "Turno da atividade inválido."
+    )
+  }
+
+  return value
+}
+
+function normalizePriorityReasons(value: any) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return []
+  }
+
+  if (!Array.isArray(value)) {
+    throw new ValidationError(
+      "As situações prioritárias são inválidas."
+    )
+  }
+
+  const uniqueValues = [...new Set(value)]
+
+  for (const reason of uniqueValues) {
+    if (
+      typeof reason !== "string" ||
+      !PRIORITY_REASON_VALUES.includes(reason)
+    ) {
+      throw new ValidationError(
+        "Foi informada uma situação prioritária inválida."
+      )
+    }
+  }
+
+  return uniqueValues
+}
+
+function normalizeOptionalDate(value: any, label: string) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null
+  }
+
+  if (typeof value !== "string") {
+    throw new ValidationError(`${label} inválida.`)
+  }
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+
+  if (!match) {
+    throw new ValidationError(
+      `${label} deve estar no formato AAAA-MM-DD.`
+    )
+  }
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+
+  const date = new Date(Date.UTC(year, month - 1, day))
+
+  const valid =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+
+  if (!valid) {
+    throw new ValidationError(`${label} inválida.`)
+  }
+
+  return date
+}
+
+function categoryFromActivity(activity: string) {
+  return activity === "SCFV_IDOSOS"
+    ? "ELDERLY"
+    : "CHILDREN"
+}
+
+async function getDetailedScfvUser(userId: number) {
+  return prisma.scfvUser.findUnique({
+    where: {
+      id: userId
+    },
+
+    include: {
+      childProfile: {
+        include: {
+          responsible: true
+        }
+      },
+
+      createdBy: {
+        select: {
+          id: true,
+          nome: true
+        }
+      },
+
+      updatedBy: {
+        select: {
+          id: true,
+          nome: true
+        }
+      }
+    }
+  })
+}
+
+function formatDetailedScfvUser(user: any) {
+  const category = categoryFromActivity(user.activity)
+
+  return {
+    id: user.id,
+    category,
+    activity: user.activity,
+
+    name: user.name,
+    cpf: user.cpf,
+    nis: user.nis,
+    birthDate: user.birthDate,
+    age: calculateAge(user.birthDate),
+
+    identityNumber: user.identityNumber,
+    birthplace: user.birthplace,
+    sex: user.sex,
+
+    phone:
+      category === "ELDERLY"
+        ? user.phone
+        : null,
+
+    hasDisability: user.hasDisability,
+    disabilityDetails: user.disabilityDetails,
+
+    hasAllergy: user.hasAllergy,
+    allergyDetails: user.allergyDetails,
+
+    receivesBpc: user.receivesBpc,
+
+    isLiterate: user.isLiterate,
+    educationNotes: user.educationNotes,
+
+    activityShift: user.activityShift,
+
+    address: user.address,
+    neighborhood: user.neighborhood,
+    zipCode: user.zipCode,
+    referencePoint: user.referencePoint,
+
+    isPriority: user.isPriority,
+    priorityReasons: user.priorityReasons,
+
+    referralOriginAgency:
+      user.referralOriginAgency,
+    referralDocumentType:
+      user.referralDocumentType,
+    referralDocumentNumber:
+      user.referralDocumentNumber,
+    referralDate:
+      user.referralDate,
+
+    familyMembersInfo:
+      user.familyMembersInfo,
+    observations:
+      user.observations,
+
+    participatesOtherService:
+      user.participatesOtherService,
+    otherServiceDetails:
+      user.otherServiceDetails,
+
+    photoPath: user.photoPath,
+
+    active: user.active,
+    deactivationType:
+      user.deactivationType,
+    inactiveReason:
+      user.inactiveReason,
+    inactiveAt:
+      user.inactiveAt,
+
+    childProfile:
+      user.childProfile
+        ? {
+            id: user.childProfile.id,
+
+            motherName:
+              user.childProfile.motherName,
+            fatherName:
+              user.childProfile.fatherName,
+
+            relationship:
+              user.childProfile.relationship,
+            relationshipOther:
+              user.childProfile.relationshipOther,
+
+            school:
+              user.childProfile.school,
+            grade:
+              user.childProfile.grade,
+            schoolShift:
+              user.childProfile.schoolShift,
+
+            receivesBolsaFamilia:
+              user.childProfile.receivesBolsaFamilia,
+            familyResponsibleName:
+              user.childProfile.familyResponsibleName,
+            familyNis:
+              user.childProfile.familyNis,
+
+            responsible: {
+              id:
+                user.childProfile.responsible.id,
+              name:
+                user.childProfile.responsible.name,
+              cpf:
+                user.childProfile.responsible.cpf,
+              phone:
+                user.childProfile.responsible.phone
+            }
+          }
+        : null,
+
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+
+    createdBy: {
+      id: user.createdBy.id,
+      name: user.createdBy.nome
+    },
+
+    updatedBy:
+      user.updatedBy
+        ? {
+            id: user.updatedBy.id,
+            name: user.updatedBy.nome
+          }
+        : null
+  }
+}
+
+function normalizeConditionalDetails(
+  flag: boolean | null,
+  details: string | null,
+  message: string
+) {
+  if (flag === true && !details) {
+    throw new ValidationError(message)
+  }
+
+  return flag === true
+    ? details
+    : null
+}
+
 export async function createScfvUser(req: any, res: any) {
   try {
-    const {
-      category,
-      name,
-      cpf,
-      nis,
-      birthDate,
-      phone,
-      address,
-      childProfile,
-      elderlyProfile
-    } = req.body
+    const body = req.body ?? {}
 
-    // DADOS COMUNS OBRIGATÓRIOS
-    if (
-      typeof category !== "string" ||
-      typeof name !== "string" ||
-      typeof cpf !== "string" ||
-      typeof birthDate !== "string" ||
-      typeof phone !== "string" ||
-      typeof address !== "string" ||
-      !name.trim() ||
-      !cpf.trim() ||
-      !birthDate.trim() ||
-      !phone.trim() ||
-      !address.trim()
-    ) {
-      return res.status(400).json({
-        message:
-          "Atividade proposta, nome, CPF, data de nascimento, telefone e endereço são obrigatórios."
-      })
-    }
+    const category = body.category
 
     if (
       category !== "CHILDREN" &&
       category !== "ELDERLY"
     ) {
-      return res.status(400).json({
-        message: "Atividade proposta inválida."
-      })
+      throw new ValidationError(
+        "Tipo de usuário inválido."
+      )
     }
 
-    const normalizedName = name.trim()
-    const normalizedCpf = normalizeCpf(cpf)
-    const normalizedPhone = normalizePhone(phone)
-    const normalizedAddress = address.trim()
+    const name = requireText(
+      body.name,
+      "Nome"
+    )
 
-    if (!isValidCpf(normalizedCpf)) {
-      return res.status(400).json({
-        message: "CPF inválido."
-      })
+    const cpfText = requireText(
+      body.cpf,
+      "CPF"
+    )
+
+    const cpf = normalizeCpf(cpfText)
+
+    if (!isValidCpf(cpf)) {
+      throw new ValidationError("CPF inválido.")
     }
 
-    if (!isValidPhone(normalizedPhone)) {
-      return res.status(400).json({
-        message:
-          "Telefone inválido. Informe um número com DDD."
-      })
-    }
+    const birthDate = requireText(
+      body.birthDate,
+      "Data de nascimento"
+    )
 
-    if (normalizedAddress.length > 200) {
-      return res.status(400).json({
-        message:
-          "O endereço deve possuir no máximo 200 caracteres."
-      })
-    }
-
-    // IMPEDE CPF DUPLICADO
-    const existingCpf = await prisma.scfvUser.findUnique({
-      where: {
-        cpf: normalizedCpf
-      }
-    })
-
-    if (existingCpf) {
-      return res.status(409).json({
-        message:
-          "Já existe um usuário cadastrado com este CPF."
-      })
-    }
-
-    // NIS OPCIONAL
-    let normalizedNis: string | null = null
-
-    if (
-      nis !== undefined &&
-      nis !== null &&
-      nis !== ""
-    ) {
-      if (typeof nis !== "string") {
-        return res.status(400).json({
-          message: "NIS inválido."
-        })
-      }
-
-      normalizedNis = nis.replace(/\D/g, "")
-
-      if (normalizedNis.length !== 11) {
-        return res.status(400).json({
-          message:
-            "O NIS deve possuir 11 dígitos."
-        })
-      }
-    }
-
-    // IDADE E FAIXA SCFV
     let ageResult
 
     try {
@@ -121,349 +517,407 @@ export async function createScfvUser(req: any, res: any) {
       )
     } catch (error) {
       if (error instanceof Error) {
-        return res.status(400).json({
-          message: error.message
-        })
+        throw new ValidationError(error.message)
       }
 
-      return res.status(400).json({
-        message: "Data de nascimento inválida."
-      })
+      throw new ValidationError(
+        "Data de nascimento inválida."
+      )
     }
 
     if (
       !ageResult.valid ||
       !ageResult.activity
     ) {
-      return res.status(400).json({
-        message: ageResult.message
-      })
+      throw new ValidationError(
+        ageResult.message ??
+        "Data de nascimento inválida."
+      )
     }
 
     const activity = ageResult.activity
 
-    const birthDateForDatabase = new Date(
-      `${birthDate}T00:00:00.000Z`
+    const existingCpf =
+      await prisma.scfvUser.findUnique({
+        where: {
+          cpf
+        }
+      })
+
+    if (existingCpf) {
+      return res.status(409).json({
+        message:
+          "Já existe um usuário cadastrado com este CPF."
+      })
+    }
+
+    const nis = normalizeNisValue(body.nis)
+
+    const identityNumber = optionalText(
+      body.identityNumber,
+      "Carteira de identidade",
+      30
     )
 
-    // DADOS ESPECÍFICOS DA CRIANÇA
+    const birthplace = optionalText(
+      body.birthplace,
+      "Naturalidade",
+      120
+    )
+
+    const sex = normalizeSex(body.sex)
+
+    const phone =
+      category === "ELDERLY"
+        ? normalizePhoneValue(
+            body.phone,
+            "Telefone para contato"
+          )
+        : null
+
+    const hasDisability = optionalBoolean(
+      body.hasDisability,
+      "Deficiência ou dificuldade de aprendizagem"
+    )
+
+    let disabilityDetails = optionalText(
+      body.disabilityDetails,
+      "Descrição da deficiência ou dificuldade",
+      200
+    )
+
+    disabilityDetails = normalizeConditionalDetails(
+      hasDisability,
+      disabilityDetails,
+      "Informe qual é a deficiência ou dificuldade de aprendizagem."
+    )
+
+    const hasAllergy = optionalBoolean(
+      body.hasAllergy,
+      "Alergia"
+    )
+
+    let allergyDetails = optionalText(
+      body.allergyDetails,
+      "Descrição da alergia",
+      200
+    )
+
+    allergyDetails = normalizeConditionalDetails(
+      hasAllergy,
+      allergyDetails,
+      "Informe qual é a alergia do usuário."
+    )
+
+    const receivesBpc = optionalBoolean(
+      body.receivesBpc,
+      "Benefício do BPC"
+    )
+
+    const isLiterate = optionalBoolean(
+      body.isLiterate,
+      "Grau de instrução"
+    )
+
+    const educationNotes = optionalText(
+      body.educationNotes,
+      "Observação do grau de instrução",
+      200
+    )
+
+    const activityShift =
+      normalizeActivityShift(body.activityShift)
+
+    const address = optionalText(
+      body.address,
+      "Endereço",
+      200
+    )
+
+    const neighborhood = optionalText(
+      body.neighborhood,
+      "Bairro",
+      100
+    )
+
+    const zipCode = normalizeZipCode(
+      body.zipCode
+    )
+
+    const referencePoint = optionalText(
+      body.referencePoint,
+      "Ponto de referência",
+      200
+    )
+
+    const isPriority = optionalBoolean(
+      body.isPriority,
+      "Situação prioritária"
+    )
+
+    let priorityReasons = normalizePriorityReasons(
+      body.priorityReasons
+    )
+
+    if (isPriority === true) {
+      if (priorityReasons.length === 0) {
+        throw new ValidationError(
+          "Selecione ao menos uma situação prioritária."
+        )
+      }
+    } else {
+      priorityReasons = []
+    }
+
+    const referralOriginAgency = optionalText(
+      body.referralOriginAgency,
+      "Órgão de origem",
+      150
+    )
+
+    const referralDocumentType = optionalText(
+      body.referralDocumentType,
+      "Tipo de documento do encaminhamento",
+      30
+    )
+
+    const referralDocumentNumber = optionalText(
+      body.referralDocumentNumber,
+      "Número do documento do encaminhamento",
+      30
+    )
+
+    const referralDate = normalizeOptionalDate(
+      body.referralDate,
+      "Data do encaminhamento"
+    )
+
+    const familyMembersInfo = optionalText(
+      body.familyMembersInfo,
+      "Informações sobre membros da família"
+    )
+
+    const observations = optionalText(
+      body.observations,
+      "Observações"
+    )
+
+    const participatesOtherService =
+      optionalBoolean(
+        body.participatesOtherService,
+        "Participação em outro serviço"
+      )
+
+    let otherServiceDetails = optionalText(
+      body.otherServiceDetails,
+      "Outro serviço",
+      200
+    )
+
+    otherServiceDetails = normalizeConditionalDetails(
+      participatesOtherService,
+      otherServiceDetails,
+      "Informe de qual outro serviço o usuário participa."
+    )
+
     let normalizedChildProfile: any = null
 
     if (category === "CHILDREN") {
+      const childProfile = body.childProfile
+
       if (
         !childProfile ||
         typeof childProfile !== "object" ||
         Array.isArray(childProfile)
       ) {
-        return res.status(400).json({
-          message:
-            "Os dados da ficha da criança são obrigatórios."
-        })
+        throw new ValidationError(
+          "Os dados da ficha da criança são obrigatórios."
+        )
       }
 
-      const {
-        responsible,
-        relationship,
-        relationshipOther,
-        school,
-        grade,
-        schoolClass,
-        schoolAttendance
-      } = childProfile
+      const responsible = childProfile.responsible
 
       if (
         !responsible ||
         typeof responsible !== "object" ||
         Array.isArray(responsible)
       ) {
-        return res.status(400).json({
-          message:
-            "Os dados do responsável são obrigatórios."
-        })
+        throw new ValidationError(
+          "Os dados do responsável são obrigatórios."
+        )
       }
 
-      const {
-        name: responsibleName,
-        cpf: responsibleCpf,
-        phone: responsiblePhone
-      } = responsible
+      const responsibleName = requireText(
+        responsible.name,
+        "Nome do responsável"
+      )
 
-      if (
-        typeof responsibleName !== "string" ||
-        typeof responsibleCpf !== "string" ||
-        typeof responsiblePhone !== "string" ||
-        !responsibleName.trim() ||
-        !responsibleCpf.trim() ||
-        !responsiblePhone.trim()
-      ) {
-        return res.status(400).json({
-          message:
-            "Nome, CPF e telefone do responsável são obrigatórios."
-        })
+      const responsibleCpfText = requireText(
+        responsible.cpf,
+        "CPF do responsável"
+      )
+
+      const responsibleCpf = normalizeCpf(
+        responsibleCpfText
+      )
+
+      if (!isValidCpf(responsibleCpf)) {
+        throw new ValidationError(
+          "CPF do responsável inválido."
+        )
       }
 
-      const normalizedResponsibleCpf =
-        normalizeCpf(responsibleCpf)
-
-      const normalizedResponsiblePhone =
-        normalizePhone(responsiblePhone)
-
-      if (
-        !isValidCpf(normalizedResponsibleCpf)
-      ) {
-        return res.status(400).json({
-          message:
-            "CPF do responsável inválido."
-        })
+      if (responsibleCpf === cpf) {
+        throw new ValidationError(
+          "O CPF do responsável deve ser diferente do CPF da criança."
+        )
       }
 
-      if (
-        normalizedResponsibleCpf ===
-        normalizedCpf
-      ) {
-        return res.status(400).json({
-          message:
-            "O CPF do responsável deve ser diferente do CPF da criança."
-        })
-      }
+      const responsiblePhone = normalizePhoneValue(
+        responsible.phone,
+        "Telefone do responsável",
+        true
+      )
+
+      const relationship = childProfile.relationship
 
       if (
-        !isValidPhone(
-          normalizedResponsiblePhone
+        typeof relationship !== "string" ||
+        !RESPONSIBLE_RELATIONSHIPS.includes(
+          relationship
         )
       ) {
-        return res.status(400).json({
-          message:
-            "Telefone do responsável inválido."
-        })
+        throw new ValidationError(
+          "Parentesco com o responsável inválido."
+        )
       }
 
-      if (
-        relationship !== "PAI" &&
-        relationship !== "MAE" &&
-        relationship !== "OUTRO"
-      ) {
-        return res.status(400).json({
-          message:
-            "Relação com o responsável inválida."
-        })
-      }
-
-      let normalizedRelationshipOther:
-        string | null = null
+      let relationshipOther = optionalText(
+        childProfile.relationshipOther,
+        "Especificação do parentesco",
+        50
+      )
 
       if (relationship === "OUTRO") {
-        if (
-          typeof relationshipOther !== "string" ||
-          !relationshipOther.trim()
-        ) {
-          return res.status(400).json({
-            message:
-              "Informe qual é a relação do responsável com a criança."
-          })
+        if (!relationshipOther) {
+          throw new ValidationError(
+            "Especifique o parentesco do responsável."
+          )
         }
-
-        normalizedRelationshipOther =
-          relationshipOther.trim()
-
-        if (
-          normalizedRelationshipOther.length >
-          50
-        ) {
-          return res.status(400).json({
-            message:
-              "A relação com o responsável deve possuir no máximo 50 caracteres."
-          })
-        }
-      }
-
-      const schoolFields = [
-        {
-          label: "Escola",
-          value: school,
-          maxLength: 150
-        },
-        {
-          label: "Série",
-          value: grade,
-          maxLength: 50
-        },
-        {
-          label: "Turma",
-          value: schoolClass,
-          maxLength: 50
-        },
-        {
-          label: "Frequência escolar",
-          value: schoolAttendance,
-          maxLength: 100
-        }
-      ]
-
-      for (const field of schoolFields) {
-        if (
-          field.value === undefined ||
-          field.value === null ||
-          field.value === ""
-        ) {
-          continue
-        }
-
-        if (typeof field.value !== "string") {
-          return res.status(400).json({
-            message: `${field.label} inválido.`
-          })
-        }
-
-        if (
-          field.value.trim().length >
-          field.maxLength
-        ) {
-          return res.status(400).json({
-            message:
-              `${field.label} deve possuir no máximo ${field.maxLength} caracteres.`
-          })
-        }
-      }
-
-      const normalizeSchoolField = (
-        value: any
-      ) => {
-        if (typeof value !== "string") {
-          return null
-        }
-
-        const normalized = value.trim()
-
-        return normalized || null
+      } else {
+        relationshipOther = null
       }
 
       normalizedChildProfile = {
+        motherName: optionalText(
+          childProfile.motherName,
+          "Nome da mãe",
+          150
+        ),
+
+        fatherName: optionalText(
+          childProfile.fatherName,
+          "Nome do pai",
+          150
+        ),
+
         responsible: {
-          name: responsibleName.trim(),
-          cpf: normalizedResponsibleCpf,
-          phone: normalizedResponsiblePhone
+          name: responsibleName,
+          cpf: responsibleCpf,
+          phone: responsiblePhone
         },
 
         relationship,
-        relationshipOther:
-          normalizedRelationshipOther,
+        relationshipOther,
 
-        school:
-          normalizeSchoolField(school),
+        school: optionalText(
+          childProfile.school,
+          "Escola",
+          150
+        ),
 
-        grade:
-          normalizeSchoolField(grade),
+        grade: optionalText(
+          childProfile.grade,
+          "Ano escolar",
+          50
+        ),
 
-        schoolClass:
-          normalizeSchoolField(schoolClass),
+        schoolShift: optionalText(
+          childProfile.schoolShift,
+          "Turno escolar",
+          50
+        ),
 
-        schoolAttendance:
-          normalizeSchoolField(
-            schoolAttendance
-          )
-      }
-    }
-    // DADOS ESPECÍFICOS DO IDOSO
-    let normalizedElderlyProfile: any = null
+        receivesBolsaFamilia:
+          optionalBoolean(
+            childProfile.receivesBolsaFamilia,
+            "Bolsa Família"
+          ),
 
-    if (category === "ELDERLY") {
-      if (
-        !elderlyProfile ||
-        typeof elderlyProfile !== "object" ||
-        Array.isArray(elderlyProfile)
-      ) {
-        return res.status(400).json({
-          message:
-            "Os dados da ficha do idoso são obrigatórios."
-        })
-      }
+        familyResponsibleName: optionalText(
+          childProfile.familyResponsibleName,
+          "Nome do responsável familiar",
+          150
+        ),
 
-      const {
-        situation,
-        observations
-      } = elderlyProfile
-
-      let normalizedSituation:
-        string | null = null
-
-      if (
-        situation !== undefined &&
-        situation !== null &&
-        situation !== ""
-      ) {
-        if (typeof situation !== "string") {
-          return res.status(400).json({
-            message: "Situação inválida."
-          })
-        }
-
-        normalizedSituation =
-          situation.trim()
-
-        if (
-          normalizedSituation.length > 200
-        ) {
-          return res.status(400).json({
-            message:
-              "A situação deve possuir no máximo 200 caracteres."
-          })
-        }
-      }
-
-      let normalizedObservations:
-        string | null = null
-
-      if (
-        observations !== undefined &&
-        observations !== null &&
-        observations !== ""
-      ) {
-        if (
-          typeof observations !== "string"
-        ) {
-          return res.status(400).json({
-            message:
-              "Observações inválidas."
-          })
-        }
-
-        normalizedObservations =
-          observations.trim() || null
-      }
-
-      normalizedElderlyProfile = {
-        situation: normalizedSituation,
-        observations:
-          normalizedObservations
+        familyNis: normalizeNisValue(
+          childProfile.familyNis,
+          "NIS do responsável familiar"
+        )
       }
     }
 
-    // TRANSAÇÃO:
-    // ou salva a ficha inteira,
-    // ou não salva nada.
-    const result = await prisma.$transaction(
+    const birthDateForDatabase = new Date(
+      `${birthDate}T00:00:00.000Z`
+    )
+
+    const createdUserId = await prisma.$transaction(
       async (tx) => {
-        const scfvUser =
-          await tx.scfvUser.create({
-            data: {
-              activity,
+        const scfvUser = await tx.scfvUser.create({
+          data: {
+            activity,
+            name,
+            cpf,
+            nis,
+            birthDate: birthDateForDatabase,
 
-              name: normalizedName,
-              cpf: normalizedCpf,
-              nis: normalizedNis,
+            identityNumber,
+            birthplace,
+            sex: sex as any,
+            phone,
 
-              birthDate:
-                birthDateForDatabase,
+            hasDisability,
+            disabilityDetails,
+            hasAllergy,
+            allergyDetails,
+            receivesBpc,
 
-              phone: normalizedPhone,
-              address:
-                normalizedAddress,
+            isLiterate,
+            educationNotes,
+            activityShift: activityShift as any,
 
-              createdById:
-                req.session.user.id
-            }
-          })
+            address,
+            neighborhood,
+            zipCode,
+            referencePoint,
+
+            isPriority,
+            priorityReasons: priorityReasons as any,
+
+            referralOriginAgency,
+            referralDocumentType,
+            referralDocumentNumber,
+            referralDate,
+
+            familyMembersInfo,
+            observations,
+
+            participatesOtherService,
+            otherServiceDetails,
+
+            createdById: req.session.user.id
+          }
+        })
 
         if (
           category === "CHILDREN" &&
@@ -481,7 +935,6 @@ export async function createScfvUser(req: any, res: any) {
                 name:
                   normalizedChildProfile
                     .responsible.name,
-
                 phone:
                   normalizedChildProfile
                     .responsible.phone
@@ -491,126 +944,77 @@ export async function createScfvUser(req: any, res: any) {
                 name:
                   normalizedChildProfile
                     .responsible.name,
-
                 cpf:
                   normalizedChildProfile
                     .responsible.cpf,
-
                 phone:
                   normalizedChildProfile
                     .responsible.phone
               }
             })
 
-          const profile =
-            await tx.childProfile.create({
-              data: {
-                scfvUserId:
-                  scfvUser.id,
-
-                responsibleId:
-                  responsible.id,
-
-                relationship:
-                  normalizedChildProfile
-                    .relationship,
-
-                relationshipOther:
-                  normalizedChildProfile
-                    .relationshipOther,
-
-                school:
-                  normalizedChildProfile
-                    .school,
-
-                grade:
-                  normalizedChildProfile
-                    .grade,
-
-                schoolClass:
-                  normalizedChildProfile
-                    .schoolClass,
-
-                schoolAttendance:
-                  normalizedChildProfile
-                    .schoolAttendance
-              }
-            })
-
-          return {
-            scfvUser,
-            childProfile: {
-              ...profile,
-
-              responsible: {
-                id: responsible.id,
-                name: responsible.name,
-                cpf: responsible.cpf,
-                phone: responsible.phone
-              }
-            },
-
-            elderlyProfile: null
-          }
-        }
-
-        const profile =
-          await tx.elderlyProfile.create({
+          await tx.childProfile.create({
             data: {
-              scfvUserId:
-                scfvUser.id,
+              scfvUserId: scfvUser.id,
 
-              situation:
-                normalizedElderlyProfile
-                  .situation,
+              motherName:
+                normalizedChildProfile.motherName,
+              fatherName:
+                normalizedChildProfile.fatherName,
 
-              observations:
-                normalizedElderlyProfile
-                  .observations
+              responsibleId: responsible.id,
+
+              relationship:
+                normalizedChildProfile.relationship,
+              relationshipOther:
+                normalizedChildProfile.relationshipOther,
+
+              school:
+                normalizedChildProfile.school,
+              grade:
+                normalizedChildProfile.grade,
+              schoolShift:
+                normalizedChildProfile.schoolShift,
+
+              receivesBolsaFamilia:
+                normalizedChildProfile
+                  .receivesBolsaFamilia,
+              familyResponsibleName:
+                normalizedChildProfile
+                  .familyResponsibleName,
+              familyNis:
+                normalizedChildProfile.familyNis
             }
           })
-
-        return {
-          scfvUser,
-          childProfile: null,
-          elderlyProfile: profile
         }
+
+        return scfvUser.id
       }
     )
+
+    const user = await getDetailedScfvUser(
+      createdUserId
+    )
+
+    if (!user) {
+      return res.status(500).json({
+        message:
+          "O cadastro foi criado, mas não foi possível carregá-lo."
+      })
+    }
 
     return res.status(201).json({
       message:
         "Usuário cadastrado com sucesso.",
-
-      user: {
-        id: result.scfvUser.id,
-        name: result.scfvUser.name,
-        cpf: result.scfvUser.cpf,
-        nis: result.scfvUser.nis,
-        birthDate:
-          result.scfvUser.birthDate,
-
-        age: ageResult.age,
-        activity:
-          result.scfvUser.activity,
-
-        phone:
-          result.scfvUser.phone,
-
-        address:
-          result.scfvUser.address,
-
-        active:
-          result.scfvUser.active,
-
-        childProfile:
-          result.childProfile,
-
-        elderlyProfile:
-          result.elderlyProfile
-      }
+      user: formatDetailedScfvUser(user)
     })
   } catch (error) {
+    if (error instanceof ValidationError) {
+      return res.status(400).json({
+        message: error.message
+      })
+    }
+
     console.error(error)
 
     return res.status(500).json({
@@ -622,7 +1026,6 @@ export async function createScfvUser(req: any, res: any) {
 
 export async function listScfvUsers(req: any, res: any) {
   try {
-
     const {
       search,
       category,
@@ -633,8 +1036,10 @@ export async function listScfvUsers(req: any, res: any) {
 
     const where: any = {}
 
-    // Busca por nome, CPF ou NIS
-    if (typeof search === "string" && search.trim()) {
+    if (
+      typeof search === "string" &&
+      search.trim()
+    ) {
       const searchText = search.trim()
 
       const isDocumentSearch =
@@ -664,7 +1069,6 @@ export async function listScfvUsers(req: any, res: any) {
       }
     }
 
-    // Filtro geral: Crianças ou Idosos
     if (category !== undefined) {
       if (
         category !== "CHILDREN" &&
@@ -682,14 +1086,11 @@ export async function listScfvUsers(req: any, res: any) {
             "SCFV_7_15"
           ]
         }
-      }
-
-      if (category === "ELDERLY") {
+      } else {
         where.activity = "SCFV_IDOSOS"
       }
     }
 
-    // Filtro específico por faixa
     if (activity !== undefined) {
       if (
         activity !== "SCFV_0_6" &&
@@ -704,7 +1105,6 @@ export async function listScfvUsers(req: any, res: any) {
       where.activity = activity
     }
 
-    // Ativos ou inativos
     if (active !== undefined) {
       if (
         active !== "true" &&
@@ -719,7 +1119,6 @@ export async function listScfvUsers(req: any, res: any) {
       where.active = active === "true"
     }
 
-    // Usuários com ou sem NIS
     if (missingNis !== undefined) {
       if (
         missingNis !== "true" &&
@@ -768,6 +1167,7 @@ export async function listScfvUsers(req: any, res: any) {
 
     const formattedUsers = users.map((user) => ({
       id: user.id,
+      category: categoryFromActivity(user.activity),
       name: user.name,
       cpf: user.cpf,
       nis: user.nis,
@@ -792,7 +1192,8 @@ export async function listScfvUsers(req: any, res: any) {
     console.error(error)
 
     return res.status(500).json({
-      message: "Erro interno do servidor."
+      message:
+        "Erro interno do servidor."
     })
   }
 }
@@ -810,74 +1211,7 @@ export async function getScfvUserById(req: any, res: any) {
       })
     }
 
-    const user = await prisma.scfvUser.findUnique({
-      where: {
-        id: userId
-      },
-
-      select: {
-        id: true,
-        activity: true,
-        name: true,
-        cpf: true,
-        nis: true,
-        birthDate: true,
-        phone: true,
-        address: true,
-        photoPath: true,
-
-        active: true,
-        deactivationType: true,
-        inactiveReason: true,
-        inactiveAt: true,
-
-        createdAt: true,
-        updatedAt: true,
-
-        childProfile: {
-          select: {
-            id: true,
-            relationship: true,
-            relationshipOther: true,
-            school: true,
-            grade: true,
-            schoolClass: true,
-            schoolAttendance: true,
-
-            responsible: {
-              select: {
-                id: true,
-                name: true,
-                cpf: true,
-                phone: true
-              }
-            }
-          }
-        },
-
-        elderlyProfile: {
-          select: {
-            id: true,
-            situation: true,
-            observations: true
-          }
-        },
-
-        createdBy: {
-          select: {
-            id: true,
-            nome: true
-          }
-        },
-
-        updatedBy: {
-          select: {
-            id: true,
-            nome: true
-          }
-        }
-      }
-    })
+    const user = await getDetailedScfvUser(userId)
 
     if (!user) {
       return res.status(404).json({
@@ -886,48 +1220,14 @@ export async function getScfvUserById(req: any, res: any) {
     }
 
     return res.status(200).json({
-      user: {
-        id: user.id,
-        name: user.name,
-        cpf: user.cpf,
-        nis: user.nis,
-        birthDate: user.birthDate,
-        age: calculateAge(user.birthDate),
-        activity: user.activity,
-
-        phone: user.phone,
-        address: user.address,
-        photoPath: user.photoPath,
-
-        active: user.active,
-        deactivationType: user.deactivationType,
-        inactiveReason: user.inactiveReason,
-        inactiveAt: user.inactiveAt,
-
-        childProfile: user.childProfile,
-        elderlyProfile: user.elderlyProfile,
-
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-
-        createdBy: {
-          id: user.createdBy.id,
-          name: user.createdBy.nome
-        },
-
-        updatedBy: user.updatedBy
-          ? {
-            id: user.updatedBy.id,
-            name: user.updatedBy.nome
-          }
-          : null
-      }
+      user: formatDetailedScfvUser(user)
     })
   } catch (error) {
     console.error(error)
 
     return res.status(500).json({
-      message: "Erro interno do servidor."
+      message:
+        "Erro interno do servidor."
     })
   }
 }
@@ -945,22 +1245,7 @@ export async function updateScfvUser(req: any, res: any) {
       })
     }
 
-    const existingUser =
-      await prisma.scfvUser.findUnique({
-        where: {
-          id: userId
-        },
-
-        include: {
-          childProfile: {
-            include: {
-              responsible: true
-            }
-          },
-
-          elderlyProfile: true
-        }
-      })
+    const existingUser = await getDetailedScfvUser(userId)
 
     if (!existingUser) {
       return res.status(404).json({
@@ -968,882 +1253,791 @@ export async function updateScfvUser(req: any, res: any) {
       })
     }
 
-    const {
-      category,
-      name,
-      cpf,
-      nis,
-      birthDate,
-      phone,
-      address,
-      childProfile,
-      elderlyProfile
-    } = req.body
-
-    const currentCategory =
-      existingUser.activity === "SCFV_IDOSOS"
-        ? "ELDERLY"
-        : "CHILDREN"
-
-    // O tipo da ficha não pode ser trocado
-    // durante uma simples edição.
-    if (category !== undefined) {
-      if (
-        category !== "CHILDREN" &&
-        category !== "ELDERLY"
-      ) {
-        return res.status(400).json({
-          message: "Atividade proposta inválida."
-        })
-      }
-
-      if (category !== currentCategory) {
-        return res.status(400).json({
-          message:
-            "Não é possível alterar o público do cadastro entre Crianças e Idosos."
-        })
-      }
-    }
-
-    // Evita envio de perfil incompatível.
-    if (
-      currentCategory === "CHILDREN" &&
-      elderlyProfile !== undefined &&
-      elderlyProfile !== null
-    ) {
-      return res.status(400).json({
-        message:
-          "Dados de idoso não podem ser informados em um cadastro de criança."
-      })
-    }
+    const body = req.body ?? {}
+    const currentCategory = categoryFromActivity(
+      existingUser.activity
+    )
 
     if (
-      currentCategory === "ELDERLY" &&
-      childProfile !== undefined &&
-      childProfile !== null
+      hasField(body, "category") &&
+      body.category !== currentCategory
     ) {
-      return res.status(400).json({
-        message:
-          "Dados de criança não podem ser informados em um cadastro de idoso."
-      })
+      throw new ValidationError(
+        "Não é permitido alterar um cadastro entre criança e idoso."
+      )
     }
 
-    // NOME
-    let finalName = existingUser.name
+    const finalName = hasField(body, "name")
+      ? requireText(body.name, "Nome")
+      : existingUser.name
 
-    if (name !== undefined) {
-      if (
-        typeof name !== "string" ||
-        !name.trim()
-      ) {
-        return res.status(400).json({
-          message: "Nome inválido."
-        })
-      }
-
-      finalName = name.trim()
-    }
-
-    // CPF
     let finalCpf = existingUser.cpf
 
-    if (cpf !== undefined) {
-      if (typeof cpf !== "string") {
-        return res.status(400).json({
-          message: "CPF inválido."
-        })
+    if (hasField(body, "cpf")) {
+      const cpfText = requireText(
+        body.cpf,
+        "CPF"
+      )
+
+      finalCpf = normalizeCpf(cpfText)
+
+      if (!isValidCpf(finalCpf)) {
+        throw new ValidationError("CPF inválido.")
       }
 
-      const normalizedCpf =
-        normalizeCpf(cpf)
+      const cpfOwner = await prisma.scfvUser.findUnique({
+        where: {
+          cpf: finalCpf
+        },
 
-      if (!isValidCpf(normalizedCpf)) {
-        return res.status(400).json({
-          message: "CPF inválido."
-        })
-      }
+        select: {
+          id: true
+        }
+      })
 
-      const cpfInUse =
-        await prisma.scfvUser.findFirst({
-          where: {
-            cpf: normalizedCpf,
-
-            NOT: {
-              id: userId
-            }
-          }
-        })
-
-      if (cpfInUse) {
+      if (
+        cpfOwner &&
+        cpfOwner.id !== userId
+      ) {
         return res.status(409).json({
           message:
             "Já existe um usuário cadastrado com este CPF."
         })
       }
-
-      finalCpf = normalizedCpf
     }
 
-    // NIS
-    let finalNis = existingUser.nis
+    const finalNis = hasField(body, "nis")
+      ? normalizeNisValue(body.nis)
+      : existingUser.nis
 
-    if (nis !== undefined) {
-      if (
-        nis === null ||
-        nis === ""
-      ) {
-        finalNis = null
-      } else {
-        if (typeof nis !== "string") {
-          return res.status(400).json({
-            message: "NIS inválido."
-          })
-        }
-
-        const normalizedNis =
-          nis.replace(/\D/g, "")
-
-        if (normalizedNis.length !== 11) {
-          return res.status(400).json({
-            message:
-              "O NIS deve possuir 11 dígitos."
-          })
-        }
-
-        finalNis = normalizedNis
-      }
-    }
-
-    // DATA DE NASCIMENTO
-    let finalBirthDate: string | Date =
-      existingUser.birthDate
-
-    if (birthDate !== undefined) {
-      if (
-        typeof birthDate !== "string" ||
-        !birthDate.trim()
-      ) {
-        return res.status(400).json({
-          message:
-            "Data de nascimento inválida."
-        })
-      }
-
-      finalBirthDate = birthDate
-    }
-
-    // CELULAR
-    let finalPhone = existingUser.phone
-
-    if (phone !== undefined) {
-      if (
-        typeof phone !== "string" ||
-        !phone.trim()
-      ) {
-        return res.status(400).json({
-          message: "Celular inválido."
-        })
-      }
-
-      const normalizedPhone =
-        normalizePhone(phone)
-
-      if (!isValidPhone(normalizedPhone)) {
-        return res.status(400).json({
-          message:
-            "Celular inválido. Informe um número com DDD."
-        })
-      }
-
-      finalPhone = normalizedPhone
-    }
-
-    // ENDEREÇO
-    let finalAddress = existingUser.address
-
-    if (address !== undefined) {
-      if (
-        typeof address !== "string" ||
-        !address.trim()
-      ) {
-        return res.status(400).json({
-          message: "Endereço inválido."
-        })
-      }
-
-      const normalizedAddress =
-        address.trim()
-
-      if (
-        normalizedAddress.length > 200
-      ) {
-        return res.status(400).json({
-          message:
-            "O endereço deve possuir no máximo 200 caracteres."
-        })
-      }
-
-      finalAddress = normalizedAddress
-    }
-
-    // Recalcula idade e faixa.
+    let finalBirthDate = existingUser.birthDate
     let ageResult
 
-    try {
-      ageResult = determineScfvActivity(
-        currentCategory,
-        finalBirthDate
+    if (hasField(body, "birthDate")) {
+      const birthDateText = requireText(
+        body.birthDate,
+        "Data de nascimento"
       )
-    } catch (error) {
-      if (error instanceof Error) {
-        return res.status(400).json({
-          message: error.message
-        })
+
+      try {
+        ageResult = determineScfvActivity(
+          currentCategory,
+          birthDateText
+        )
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new ValidationError(error.message)
+        }
+
+        throw new ValidationError(
+          "Data de nascimento inválida."
+        )
       }
 
-      return res.status(400).json({
-        message:
-          "Data de nascimento inválida."
-      })
+      finalBirthDate = new Date(
+        `${birthDateText}T00:00:00.000Z`
+      )
+    } else {
+      ageResult = determineScfvActivity(
+        currentCategory,
+        existingUser.birthDate
+      )
     }
 
     if (
       !ageResult.valid ||
       !ageResult.activity
     ) {
-      return res.status(400).json({
-        message: ageResult.message
-      })
+      throw new ValidationError(
+        ageResult.message ??
+        "Data de nascimento inválida."
+      )
     }
 
-    const activity = ageResult.activity
+    const finalActivity = ageResult.activity
 
-    const birthDateForDatabase =
-      typeof finalBirthDate === "string"
-        ? new Date(
-          `${finalBirthDate}T00:00:00.000Z`
+    const finalIdentityNumber = hasField(
+      body,
+      "identityNumber"
+    )
+      ? optionalText(
+          body.identityNumber,
+          "Carteira de identidade",
+          30
         )
-        : finalBirthDate
+      : existingUser.identityNumber
 
-    // Auxiliar para campos opcionais.
-    const normalizeOptionalText = (
-      value: any,
-      currentValue:
-        string | null | undefined,
-      maxLength: number,
-      label: string
-    ) => {
-      if (value === undefined) {
-        return {
-          value: currentValue ?? null,
-          error: null
-        }
+    const finalBirthplace = hasField(
+      body,
+      "birthplace"
+    )
+      ? optionalText(
+          body.birthplace,
+          "Naturalidade",
+          120
+        )
+      : existingUser.birthplace
+
+    const finalSex = hasField(body, "sex")
+      ? normalizeSex(body.sex)
+      : existingUser.sex
+
+    const finalPhone =
+      currentCategory === "ELDERLY"
+        ? hasField(body, "phone")
+          ? normalizePhoneValue(
+              body.phone,
+              "Telefone para contato"
+            )
+          : existingUser.phone
+        : null
+
+    const finalHasDisability = hasField(
+      body,
+      "hasDisability"
+    )
+      ? optionalBoolean(
+          body.hasDisability,
+          "Deficiência ou dificuldade de aprendizagem"
+        )
+      : existingUser.hasDisability
+
+    let finalDisabilityDetails = hasField(
+      body,
+      "disabilityDetails"
+    )
+      ? optionalText(
+          body.disabilityDetails,
+          "Descrição da deficiência ou dificuldade",
+          200
+        )
+      : existingUser.disabilityDetails
+
+    finalDisabilityDetails = normalizeConditionalDetails(
+      finalHasDisability,
+      finalDisabilityDetails,
+      "Informe qual é a deficiência ou dificuldade de aprendizagem."
+    )
+
+    const finalHasAllergy = hasField(
+      body,
+      "hasAllergy"
+    )
+      ? optionalBoolean(
+          body.hasAllergy,
+          "Alergia"
+        )
+      : existingUser.hasAllergy
+
+    let finalAllergyDetails = hasField(
+      body,
+      "allergyDetails"
+    )
+      ? optionalText(
+          body.allergyDetails,
+          "Descrição da alergia",
+          200
+        )
+      : existingUser.allergyDetails
+
+    finalAllergyDetails = normalizeConditionalDetails(
+      finalHasAllergy,
+      finalAllergyDetails,
+      "Informe qual é a alergia do usuário."
+    )
+
+    const finalReceivesBpc = hasField(
+      body,
+      "receivesBpc"
+    )
+      ? optionalBoolean(
+          body.receivesBpc,
+          "Benefício do BPC"
+        )
+      : existingUser.receivesBpc
+
+    const finalIsLiterate = hasField(
+      body,
+      "isLiterate"
+    )
+      ? optionalBoolean(
+          body.isLiterate,
+          "Grau de instrução"
+        )
+      : existingUser.isLiterate
+
+    const finalEducationNotes = hasField(
+      body,
+      "educationNotes"
+    )
+      ? optionalText(
+          body.educationNotes,
+          "Observação do grau de instrução",
+          200
+        )
+      : existingUser.educationNotes
+
+    const finalActivityShift = hasField(
+      body,
+      "activityShift"
+    )
+      ? normalizeActivityShift(body.activityShift)
+      : existingUser.activityShift
+
+    const finalAddress = hasField(body, "address")
+      ? optionalText(
+          body.address,
+          "Endereço",
+          200
+        )
+      : existingUser.address
+
+    const finalNeighborhood = hasField(
+      body,
+      "neighborhood"
+    )
+      ? optionalText(
+          body.neighborhood,
+          "Bairro",
+          100
+        )
+      : existingUser.neighborhood
+
+    const finalZipCode = hasField(body, "zipCode")
+      ? normalizeZipCode(body.zipCode)
+      : existingUser.zipCode
+
+    const finalReferencePoint = hasField(
+      body,
+      "referencePoint"
+    )
+      ? optionalText(
+          body.referencePoint,
+          "Ponto de referência",
+          200
+        )
+      : existingUser.referencePoint
+
+    const finalIsPriority = hasField(
+      body,
+      "isPriority"
+    )
+      ? optionalBoolean(
+          body.isPriority,
+          "Situação prioritária"
+        )
+      : existingUser.isPriority
+
+    let finalPriorityReasons = hasField(
+      body,
+      "priorityReasons"
+    )
+      ? normalizePriorityReasons(
+          body.priorityReasons
+        )
+      : [...existingUser.priorityReasons]
+
+    if (finalIsPriority === true) {
+      if (finalPriorityReasons.length === 0) {
+        throw new ValidationError(
+          "Selecione ao menos uma situação prioritária."
+        )
       }
-
-      if (
-        value === null ||
-        value === ""
-      ) {
-        return {
-          value: null,
-          error: null
-        }
-      }
-
-      if (typeof value !== "string") {
-        return {
-          value: null,
-          error: `${label} inválido.`
-        }
-      }
-
-      const normalized = value.trim()
-
-      if (!normalized) {
-        return {
-          value: null,
-          error: null
-        }
-      }
-
-      if (
-        normalized.length > maxLength
-      ) {
-        return {
-          value: null,
-          error:
-            `${label} deve possuir no máximo ${maxLength} caracteres.`
-        }
-      }
-
-      return {
-        value: normalized,
-        error: null
-      }
+    } else {
+      finalPriorityReasons = []
     }
+
+    const finalReferralOriginAgency = hasField(
+      body,
+      "referralOriginAgency"
+    )
+      ? optionalText(
+          body.referralOriginAgency,
+          "Órgão de origem",
+          150
+        )
+      : existingUser.referralOriginAgency
+
+    const finalReferralDocumentType = hasField(
+      body,
+      "referralDocumentType"
+    )
+      ? optionalText(
+          body.referralDocumentType,
+          "Tipo de documento do encaminhamento",
+          30
+        )
+      : existingUser.referralDocumentType
+
+    const finalReferralDocumentNumber = hasField(
+      body,
+      "referralDocumentNumber"
+    )
+      ? optionalText(
+          body.referralDocumentNumber,
+          "Número do documento do encaminhamento",
+          30
+        )
+      : existingUser.referralDocumentNumber
+
+    const finalReferralDate = hasField(
+      body,
+      "referralDate"
+    )
+      ? normalizeOptionalDate(
+          body.referralDate,
+          "Data do encaminhamento"
+        )
+      : existingUser.referralDate
+
+    const finalFamilyMembersInfo = hasField(
+      body,
+      "familyMembersInfo"
+    )
+      ? optionalText(
+          body.familyMembersInfo,
+          "Informações sobre membros da família"
+        )
+      : existingUser.familyMembersInfo
+
+    const finalObservations = hasField(
+      body,
+      "observations"
+    )
+      ? optionalText(
+          body.observations,
+          "Observações"
+        )
+      : existingUser.observations
+
+    const finalParticipatesOtherService = hasField(
+      body,
+      "participatesOtherService"
+    )
+      ? optionalBoolean(
+          body.participatesOtherService,
+          "Participação em outro serviço"
+        )
+      : existingUser.participatesOtherService
+
+    let finalOtherServiceDetails = hasField(
+      body,
+      "otherServiceDetails"
+    )
+      ? optionalText(
+          body.otherServiceDetails,
+          "Outro serviço",
+          200
+        )
+      : existingUser.otherServiceDetails
+
+    finalOtherServiceDetails = normalizeConditionalDetails(
+      finalParticipatesOtherService,
+      finalOtherServiceDetails,
+      "Informe de qual outro serviço o usuário participa."
+    )
 
     let normalizedChildProfile: any = null
 
-    if (
-      currentCategory === "CHILDREN" &&
-      childProfile !== undefined
-    ) {
-      if (
-        !childProfile ||
-        typeof childProfile !== "object" ||
-        Array.isArray(childProfile)
-      ) {
-        return res.status(400).json({
-          message:
-            "Dados da ficha da criança inválidos."
-        })
-      }
-
-      const {
-        responsible,
-        relationship,
-        relationshipOther,
-        school,
-        grade,
-        schoolClass,
-        schoolAttendance
-      } = childProfile
-
-      const currentResponsible =
-        existingUser.childProfile
-          ?.responsible
-
-      let finalResponsibleName =
-        currentResponsible?.name ?? null
-
-      let finalResponsibleCpf =
-        currentResponsible?.cpf ?? null
-
-      let finalResponsiblePhone =
-        currentResponsible?.phone ?? null
-
-      if (responsible !== undefined) {
-        if (
-          !responsible ||
-          typeof responsible !== "object" ||
-          Array.isArray(responsible)
-        ) {
-          return res.status(400).json({
-            message:
-              "Dados do responsável inválidos."
-          })
-        }
-
-        if (responsible.name !== undefined) {
-          if (
-            typeof responsible.name !==
-            "string" ||
-            !responsible.name.trim()
-          ) {
-            return res.status(400).json({
-              message:
-                "Nome do responsável inválido."
-            })
-          }
-
-          finalResponsibleName =
-            responsible.name.trim()
-        }
-
-        if (responsible.cpf !== undefined) {
-          if (
-            typeof responsible.cpf !==
-            "string"
-          ) {
-            return res.status(400).json({
-              message:
-                "CPF do responsável inválido."
-            })
-          }
-
-          const normalizedResponsibleCpf =
-            normalizeCpf(
-              responsible.cpf
-            )
-
-          if (
-            !isValidCpf(
-              normalizedResponsibleCpf
-            )
-          ) {
-            return res.status(400).json({
-              message:
-                "CPF do responsável inválido."
-            })
-          }
-
-          finalResponsibleCpf =
-            normalizedResponsibleCpf
-        }
-
-        if (
-          responsible.phone !== undefined
-        ) {
-          if (
-            typeof responsible.phone !==
-            "string" ||
-            !responsible.phone.trim()
-          ) {
-            return res.status(400).json({
-              message:
-                "Celular do responsável inválido."
-            })
-          }
-
-          const normalizedResponsiblePhone =
-            normalizePhone(
-              responsible.phone
-            )
-
-          if (
-            !isValidPhone(
-              normalizedResponsiblePhone
-            )
-          ) {
-            return res.status(400).json({
-              message:
-                "Celular do responsável inválido."
-            })
-          }
-
-          finalResponsiblePhone =
-            normalizedResponsiblePhone
-        }
-      }
+    if (currentCategory === "CHILDREN") {
+      const input = hasField(body, "childProfile")
+        ? body.childProfile
+        : {}
 
       if (
-        !finalResponsibleName ||
-        !finalResponsibleCpf ||
-        !finalResponsiblePhone
+        input === null ||
+        typeof input !== "object" ||
+        Array.isArray(input)
       ) {
-        return res.status(400).json({
-          message:
-            "Nome, CPF e celular do responsável são obrigatórios."
-        })
+        throw new ValidationError(
+          "Os dados da ficha da criança são inválidos."
+        )
       }
 
-      if (
-        finalResponsibleCpf === finalCpf
-      ) {
-        return res.status(400).json({
-          message:
-            "O CPF do responsável deve ser diferente do CPF da criança."
-        })
+      const currentProfile = existingUser.childProfile
+
+      if (!currentProfile) {
+        throw new ValidationError(
+          "O cadastro infantil não possui perfil de criança."
+        )
       }
 
-      let finalRelationship =
-        existingUser.childProfile
-          ?.relationship
+      let responsibleInput: any = {}
 
-      if (relationship !== undefined) {
+      if (hasField(input, "responsible")) {
         if (
-          relationship !== "PAI" &&
-          relationship !== "MAE" &&
-          relationship !== "OUTRO"
+          !input.responsible ||
+          typeof input.responsible !== "object" ||
+          Array.isArray(input.responsible)
         ) {
-          return res.status(400).json({
-            message:
-              "Relação com o responsável inválida."
-          })
+          throw new ValidationError(
+            "Os dados do responsável são inválidos."
+          )
         }
 
-        finalRelationship = relationship
+        responsibleInput = input.responsible
       }
 
-      if (!finalRelationship) {
-        return res.status(400).json({
-          message:
-            "Informe a relação do responsável com a criança."
-        })
+      const responsibleName = hasField(
+        responsibleInput,
+        "name"
+      )
+        ? requireText(
+            responsibleInput.name,
+            "Nome do responsável"
+          )
+        : currentProfile.responsible.name
+
+      let responsibleCpf =
+        currentProfile.responsible.cpf
+
+      if (hasField(responsibleInput, "cpf")) {
+        const responsibleCpfText = requireText(
+          responsibleInput.cpf,
+          "CPF do responsável"
+        )
+
+        responsibleCpf = normalizeCpf(
+          responsibleCpfText
+        )
+
+        if (!isValidCpf(responsibleCpf)) {
+          throw new ValidationError(
+            "CPF do responsável inválido."
+          )
+        }
       }
 
-      let finalRelationshipOther =
-        existingUser.childProfile
-          ?.relationshipOther ?? null
+      if (responsibleCpf === finalCpf) {
+        throw new ValidationError(
+          "O CPF do responsável deve ser diferente do CPF da criança."
+        )
+      }
+
+      const responsiblePhone = hasField(
+        responsibleInput,
+        "phone"
+      )
+        ? normalizePhoneValue(
+            responsibleInput.phone,
+            "Telefone do responsável",
+            true
+          )
+        : currentProfile.responsible.phone
+
+      if (!responsiblePhone) {
+        throw new ValidationError(
+          "Telefone do responsável é obrigatório."
+        )
+      }
+
+      const relationship = hasField(
+        input,
+        "relationship"
+      )
+        ? input.relationship
+        : currentProfile.relationship
 
       if (
-        finalRelationship === "OUTRO"
+        typeof relationship !== "string" ||
+        !RESPONSIBLE_RELATIONSHIPS.includes(
+          relationship
+        )
       ) {
-        if (
-          relationshipOther !== undefined
-        ) {
-          if (
-            typeof relationshipOther !==
-            "string" ||
-            !relationshipOther.trim()
-          ) {
-            return res.status(400).json({
-              message:
-                "Informe qual é a relação do responsável com a criança."
-            })
-          }
+        throw new ValidationError(
+          "Parentesco com o responsável inválido."
+        )
+      }
 
-          finalRelationshipOther =
-            relationshipOther.trim()
-
-          if (
-            finalRelationshipOther.length >
+      let relationshipOther = hasField(
+        input,
+        "relationshipOther"
+      )
+        ? optionalText(
+            input.relationshipOther,
+            "Especificação do parentesco",
             50
-          ) {
-            return res.status(400).json({
-              message:
-                "A relação com o responsável deve possuir no máximo 50 caracteres."
-            })
-          }
-        }
+          )
+        : currentProfile.relationshipOther
 
-        if (!finalRelationshipOther) {
-          return res.status(400).json({
-            message:
-              "Informe qual é a relação do responsável com a criança."
-          })
+      if (relationship === "OUTRO") {
+        if (!relationshipOther) {
+          throw new ValidationError(
+            "Especifique o parentesco do responsável."
+          )
         }
       } else {
-        finalRelationshipOther = null
-      }
-
-      const schoolResult =
-        normalizeOptionalText(
-          school,
-          existingUser.childProfile?.school,
-          150,
-          "Escola"
-        )
-
-      if (schoolResult.error) {
-        return res.status(400).json({
-          message: schoolResult.error
-        })
-      }
-
-      const gradeResult =
-        normalizeOptionalText(
-          grade,
-          existingUser.childProfile?.grade,
-          50,
-          "Série"
-        )
-
-      if (gradeResult.error) {
-        return res.status(400).json({
-          message: gradeResult.error
-        })
-      }
-
-      const classResult =
-        normalizeOptionalText(
-          schoolClass,
-          existingUser.childProfile
-            ?.schoolClass,
-          50,
-          "Turma"
-        )
-
-      if (classResult.error) {
-        return res.status(400).json({
-          message: classResult.error
-        })
-      }
-
-      const attendanceResult =
-        normalizeOptionalText(
-          schoolAttendance,
-          existingUser.childProfile
-            ?.schoolAttendance,
-          100,
-          "Frequência escolar"
-        )
-
-      if (attendanceResult.error) {
-        return res.status(400).json({
-          message:
-            attendanceResult.error
-        })
+        relationshipOther = null
       }
 
       normalizedChildProfile = {
+        motherName: hasField(input, "motherName")
+          ? optionalText(
+              input.motherName,
+              "Nome da mãe",
+              150
+            )
+          : currentProfile.motherName,
+
+        fatherName: hasField(input, "fatherName")
+          ? optionalText(
+              input.fatherName,
+              "Nome do pai",
+              150
+            )
+          : currentProfile.fatherName,
+
         responsible: {
-          name: finalResponsibleName,
-          cpf: finalResponsibleCpf,
-          phone: finalResponsiblePhone
+          name: responsibleName,
+          cpf: responsibleCpf,
+          phone: responsiblePhone
         },
 
-        relationship:
-          finalRelationship,
+        relationship,
+        relationshipOther,
 
-        relationshipOther:
-          finalRelationshipOther,
+        school: hasField(input, "school")
+          ? optionalText(
+              input.school,
+              "Escola",
+              150
+            )
+          : currentProfile.school,
 
-        school: schoolResult.value,
-        grade: gradeResult.value,
+        grade: hasField(input, "grade")
+          ? optionalText(
+              input.grade,
+              "Ano escolar",
+              50
+            )
+          : currentProfile.grade,
 
-        schoolClass:
-          classResult.value,
+        schoolShift: hasField(input, "schoolShift")
+          ? optionalText(
+              input.schoolShift,
+              "Turno escolar",
+              50
+            )
+          : currentProfile.schoolShift,
 
-        schoolAttendance:
-          attendanceResult.value
-      }
-    }
-
-    let normalizedElderlyProfile: any =
-      null
-
-    if (
-      currentCategory === "ELDERLY" &&
-      elderlyProfile !== undefined
-    ) {
-      if (
-        !elderlyProfile ||
-        typeof elderlyProfile !== "object" ||
-        Array.isArray(elderlyProfile)
-      ) {
-        return res.status(400).json({
-          message:
-            "Dados da ficha do idoso inválidos."
-        })
-      }
-
-      const {
-        situation,
-        observations
-      } = elderlyProfile
-
-      const situationResult =
-        normalizeOptionalText(
-          situation,
-          existingUser.elderlyProfile
-            ?.situation,
-          200,
-          "Situação"
+        receivesBolsaFamilia: hasField(
+          input,
+          "receivesBolsaFamilia"
         )
+          ? optionalBoolean(
+              input.receivesBolsaFamilia,
+              "Bolsa Família"
+            )
+          : currentProfile.receivesBolsaFamilia,
 
-      if (situationResult.error) {
-        return res.status(400).json({
-          message: situationResult.error
-        })
+        familyResponsibleName: hasField(
+          input,
+          "familyResponsibleName"
+        )
+          ? optionalText(
+              input.familyResponsibleName,
+              "Nome do responsável familiar",
+              150
+            )
+          : currentProfile.familyResponsibleName,
+
+        familyNis: hasField(input, "familyNis")
+          ? normalizeNisValue(
+              input.familyNis,
+              "NIS do responsável familiar"
+            )
+          : currentProfile.familyNis
       }
-
-      let finalObservations =
-        existingUser.elderlyProfile
-          ?.observations ?? null
-
-      if (observations !== undefined) {
-        if (
-          observations === null ||
-          observations === ""
-        ) {
-          finalObservations = null
-        } else {
-          if (
-            typeof observations !==
-            "string"
-          ) {
-            return res.status(400).json({
-              message:
-                "Observações inválidas."
-            })
-          }
-
-          finalObservations =
-            observations.trim() || null
-        }
-      }
-
-      normalizedElderlyProfile = {
-        situation:
-          situationResult.value,
-
-        observations:
-          finalObservations
-      }
+    } else if (hasField(body, "childProfile")) {
+      throw new ValidationError(
+        "Dados de criança não se aplicam ao cadastro de idoso."
+      )
     }
 
-    const updatedUser =
-      await prisma.$transaction(
-        async (tx) => {
-          await tx.scfvUser.update({
-            where: {
-              id: userId
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.scfvUser.update({
+          where: {
+            id: userId
+          },
+
+          data: {
+            name: finalName,
+            cpf: finalCpf,
+            nis: finalNis,
+            birthDate: finalBirthDate,
+            activity: finalActivity,
+
+            identityNumber:
+              finalIdentityNumber,
+            birthplace:
+              finalBirthplace,
+            sex: finalSex as any,
+            phone: finalPhone,
+
+            hasDisability:
+              finalHasDisability,
+            disabilityDetails:
+              finalDisabilityDetails,
+            hasAllergy:
+              finalHasAllergy,
+            allergyDetails:
+              finalAllergyDetails,
+            receivesBpc:
+              finalReceivesBpc,
+
+            isLiterate:
+              finalIsLiterate,
+            educationNotes:
+              finalEducationNotes,
+            activityShift:
+              finalActivityShift as any,
+
+            address:
+              finalAddress,
+            neighborhood:
+              finalNeighborhood,
+            zipCode:
+              finalZipCode,
+            referencePoint:
+              finalReferencePoint,
+
+            isPriority:
+              finalIsPriority,
+            priorityReasons: {
+              set: finalPriorityReasons as any
             },
 
-            data: {
-              name: finalName,
-              cpf: finalCpf,
-              nis: finalNis,
+            referralOriginAgency:
+              finalReferralOriginAgency,
+            referralDocumentType:
+              finalReferralDocumentType,
+            referralDocumentNumber:
+              finalReferralDocumentNumber,
+            referralDate:
+              finalReferralDate,
 
-              birthDate:
-                birthDateForDatabase,
+            familyMembersInfo:
+              finalFamilyMembersInfo,
+            observations:
+              finalObservations,
 
-              activity,
-              phone: finalPhone,
-              address: finalAddress,
+            participatesOtherService:
+              finalParticipatesOtherService,
+            otherServiceDetails:
+              finalOtherServiceDetails,
 
-              updatedById:
-                req.session.user.id
-            }
-          })
+            updatedById:
+              req.session.user.id
+          }
+        })
 
-          if (
-            currentCategory ===
-            "CHILDREN" &&
-            normalizedChildProfile
-          ) {
-            const responsible =
-              await tx.responsible.upsert({
-                where: {
-                  cpf:
-                    normalizedChildProfile
-                      .responsible.cpf
-                },
-
-                update: {
-                  name:
-                    normalizedChildProfile
-                      .responsible.name,
-
-                  phone:
-                    normalizedChildProfile
-                      .responsible.phone
-                },
-
-                create: {
-                  name:
-                    normalizedChildProfile
-                      .responsible.name,
-
-                  cpf:
-                    normalizedChildProfile
-                      .responsible.cpf,
-
-                  phone:
-                    normalizedChildProfile
-                      .responsible.phone
-                }
-              })
-
-            await tx.childProfile.upsert({
+        if (
+          currentCategory === "CHILDREN" &&
+          normalizedChildProfile
+        ) {
+          const responsible =
+            await tx.responsible.upsert({
               where: {
-                scfvUserId: userId
+                cpf:
+                  normalizedChildProfile
+                    .responsible.cpf
               },
 
               update: {
-                responsibleId:
-                  responsible.id,
-
-                relationship:
+                name:
                   normalizedChildProfile
-                    .relationship,
-
-                relationshipOther:
+                    .responsible.name,
+                phone:
                   normalizedChildProfile
-                    .relationshipOther,
-
-                school:
-                  normalizedChildProfile
-                    .school,
-
-                grade:
-                  normalizedChildProfile
-                    .grade,
-
-                schoolClass:
-                  normalizedChildProfile
-                    .schoolClass,
-
-                schoolAttendance:
-                  normalizedChildProfile
-                    .schoolAttendance
+                    .responsible.phone
               },
 
               create: {
-                scfvUserId: userId,
-
-                responsibleId:
-                  responsible.id,
-
-                relationship:
+                name:
                   normalizedChildProfile
-                    .relationship,
-
-                relationshipOther:
+                    .responsible.name,
+                cpf:
                   normalizedChildProfile
-                    .relationshipOther,
-
-                school:
+                    .responsible.cpf,
+                phone:
                   normalizedChildProfile
-                    .school,
-
-                grade:
-                  normalizedChildProfile
-                    .grade,
-
-                schoolClass:
-                  normalizedChildProfile
-                    .schoolClass,
-
-                schoolAttendance:
-                  normalizedChildProfile
-                    .schoolAttendance
+                    .responsible.phone
               }
             })
-          }
 
-          if (
-            currentCategory ===
-            "ELDERLY" &&
-            normalizedElderlyProfile
-          ) {
-            await tx.elderlyProfile.upsert({
-              where: {
-                scfvUserId: userId
-              },
-
-              update: {
-                situation:
-                  normalizedElderlyProfile
-                    .situation,
-
-                observations:
-                  normalizedElderlyProfile
-                    .observations
-              },
-
-              create: {
-                scfvUserId: userId,
-
-                situation:
-                  normalizedElderlyProfile
-                    .situation,
-
-                observations:
-                  normalizedElderlyProfile
-                    .observations
-              }
-            })
-          }
-
-          return tx.scfvUser.findUnique({
+          await tx.childProfile.upsert({
             where: {
-              id: userId
+              scfvUserId: userId
             },
 
-            include: {
-              childProfile: {
-                include: {
-                  responsible: true
-                }
-              },
+            update: {
+              motherName:
+                normalizedChildProfile.motherName,
+              fatherName:
+                normalizedChildProfile.fatherName,
 
-              elderlyProfile: true
+              responsibleId: responsible.id,
+
+              relationship:
+                normalizedChildProfile.relationship,
+              relationshipOther:
+                normalizedChildProfile.relationshipOther,
+
+              school:
+                normalizedChildProfile.school,
+              grade:
+                normalizedChildProfile.grade,
+              schoolShift:
+                normalizedChildProfile.schoolShift,
+
+              receivesBolsaFamilia:
+                normalizedChildProfile
+                  .receivesBolsaFamilia,
+              familyResponsibleName:
+                normalizedChildProfile
+                  .familyResponsibleName,
+              familyNis:
+                normalizedChildProfile.familyNis
+            },
+
+            create: {
+              scfvUserId: userId,
+
+              motherName:
+                normalizedChildProfile.motherName,
+              fatherName:
+                normalizedChildProfile.fatherName,
+
+              responsibleId: responsible.id,
+
+              relationship:
+                normalizedChildProfile.relationship,
+              relationshipOther:
+                normalizedChildProfile.relationshipOther,
+
+              school:
+                normalizedChildProfile.school,
+              grade:
+                normalizedChildProfile.grade,
+              schoolShift:
+                normalizedChildProfile.schoolShift,
+
+              receivesBolsaFamilia:
+                normalizedChildProfile
+                  .receivesBolsaFamilia,
+              familyResponsibleName:
+                normalizedChildProfile
+                  .familyResponsibleName,
+              familyNis:
+                normalizedChildProfile.familyNis
             }
           })
         }
-      )
+      }
+    )
+
+    const updatedUser = await getDetailedScfvUser(userId)
 
     if (!updatedUser) {
       return res.status(404).json({
@@ -1854,108 +2048,15 @@ export async function updateScfvUser(req: any, res: any) {
     return res.status(200).json({
       message:
         "Cadastro atualizado com sucesso.",
-
-      user: {
-        id: updatedUser.id,
-        name: updatedUser.name,
-        cpf: updatedUser.cpf,
-        nis: updatedUser.nis,
-
-        birthDate:
-          updatedUser.birthDate,
-
-        age:
-          calculateAge(
-            updatedUser.birthDate
-          ),
-
-        activity:
-          updatedUser.activity,
-
-        phone: updatedUser.phone,
-        address: updatedUser.address,
-        active: updatedUser.active,
-
-        childProfile:
-          updatedUser.childProfile
-            ? {
-              id:
-                updatedUser
-                  .childProfile.id,
-
-              relationship:
-                updatedUser
-                  .childProfile
-                  .relationship,
-
-              relationshipOther:
-                updatedUser
-                  .childProfile
-                  .relationshipOther,
-
-              school:
-                updatedUser
-                  .childProfile.school,
-
-              grade:
-                updatedUser
-                  .childProfile.grade,
-
-              schoolClass:
-                updatedUser
-                  .childProfile
-                  .schoolClass,
-
-              schoolAttendance:
-                updatedUser
-                  .childProfile
-                  .schoolAttendance,
-
-              responsible: {
-                id:
-                  updatedUser
-                    .childProfile
-                    .responsible.id,
-
-                name:
-                  updatedUser
-                    .childProfile
-                    .responsible.name,
-
-                cpf:
-                  updatedUser
-                    .childProfile
-                    .responsible.cpf,
-
-                phone:
-                  updatedUser
-                    .childProfile
-                    .responsible.phone
-              }
-            }
-            : null,
-
-        elderlyProfile:
-          updatedUser.elderlyProfile
-            ? {
-              id:
-                updatedUser
-                  .elderlyProfile.id,
-
-              situation:
-                updatedUser
-                  .elderlyProfile
-                  .situation,
-
-              observations:
-                updatedUser
-                  .elderlyProfile
-                  .observations
-            }
-            : null
-      }
+      user: formatDetailedScfvUser(updatedUser)
     })
   } catch (error) {
+    if (error instanceof ValidationError) {
+      return res.status(400).json({
+        message: error.message
+      })
+    }
+
     console.error(error)
 
     return res.status(500).json({
@@ -1997,7 +2098,6 @@ export async function changeScfvUserStatus(req: any, res: any) {
       })
     }
 
-    // INATIVAÇÃO MANUAL
     if (active === false) {
       if (
         typeof reason !== "string" ||
@@ -2028,28 +2128,31 @@ export async function changeScfvUserStatus(req: any, res: any) {
           deactivationType: "MANUAL",
           inactiveReason: normalizedReason,
           inactiveAt: new Date(),
-
           updatedById: req.session.user.id
         }
       })
 
       return res.status(200).json({
-        message: "Usuário inativado com sucesso.",
+        message:
+          "Usuário inativado com sucesso.",
 
         user: {
           id: user.id,
           name: user.name,
           active: user.active,
-          deactivationType: user.deactivationType,
-          inactiveReason: user.inactiveReason,
-          inactiveAt: user.inactiveAt
+          deactivationType:
+            user.deactivationType,
+          inactiveReason:
+            user.inactiveReason,
+          inactiveAt:
+            user.inactiveAt
         }
       })
     }
 
-    // REATIVAÇÃO
-
-    const age = calculateAge(existingUser.birthDate)
+    const age = calculateAge(
+      existingUser.birthDate
+    )
 
     const isChildActivity =
       existingUser.activity === "SCFV_0_6" ||
@@ -2072,13 +2175,13 @@ export async function changeScfvUserStatus(req: any, res: any) {
         deactivationType: null,
         inactiveReason: null,
         inactiveAt: null,
-
         updatedById: req.session.user.id
       }
     })
 
     return res.status(200).json({
-      message: "Usuário reativado com sucesso.",
+      message:
+        "Usuário reativado com sucesso.",
 
       user: {
         id: user.id,
@@ -2090,7 +2193,8 @@ export async function changeScfvUserStatus(req: any, res: any) {
     console.error(error)
 
     return res.status(500).json({
-      message: "Erro interno do servidor."
+      message:
+        "Erro interno do servidor."
     })
   }
 }
@@ -2169,8 +2273,6 @@ export async function uploadScfvUserPhoto(
         }
       })
 
-    // Remove a foto antiga somente depois
-    // que a nova foi salva no banco.
     if (existingUser.photoPath) {
       const oldPhotoPath =
         path.resolve(

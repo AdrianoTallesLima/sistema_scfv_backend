@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -32,6 +27,30 @@ enum ResponsibleRelationship {
   PAI
   MAE
   OUTRO
+  SEM_PARENTESCO
+}
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum ActivityShift {
+  MORNING
+  AFTERNOON
+}
+
+enum PriorityReason {
+  ISOLATION
+  CHILD_LABOR
+  VIOLENCE_OR_NEGLECT
+  OUT_OF_SCHOOL_OR_GRADE_DELAY
+  INSTITUTIONAL_CARE
+  SOCIOEDUCATIONAL_MEASURE
+  SEXUAL_ABUSE_OR_EXPLOITATION
+  ECA_PROTECTION_MEASURES
+  STREET_SITUATION
+  DISABILITY_VULNERABILITY
 }
 
 model Usuario {
@@ -51,33 +70,84 @@ model Usuario {
 model ScfvUser {
   id Int @id @default(autoincrement())
 
+  // IDENTIFICAÇÃO
   activity  ScfvActivity
   name      String
   cpf       String       @unique @db.VarChar(11)
   nis       String?      @db.VarChar(11)
   birthDate DateTime     @db.Date
-  phone     String?      @db.VarChar(11)
-  address   String?      @db.VarChar(200)
 
+  identityNumber String? @db.VarChar(30)
+  birthplace     String? @db.VarChar(120)
+  sex            Sex?
+
+  // Para idosos, é o telefone de contato do próprio usuário.
+  // Para crianças, o telefone fica nos dados do responsável.
+  phone String? @db.VarChar(11)
+
+  // DEFICIÊNCIA / DIFICULDADE DE APRENDIZAGEM
+  hasDisability     Boolean?
+  disabilityDetails String?  @db.VarChar(200)
+
+  // ALERGIA
+  hasAllergy     Boolean?
+  allergyDetails String?  @db.VarChar(200)
+
+  // BENEFÍCIO DE PRESTAÇÃO CONTINUADA
+  receivesBpc Boolean?
+
+  // GRAU DE INSTRUÇÃO
+  isLiterate     Boolean?
+  educationNotes String?  @db.VarChar(200)
+
+  // TURNO DO SCFV
+  activityShift ActivityShift?
+
+  // LOCALIZAÇÃO
+  address        String? @db.VarChar(200)
+  neighborhood   String? @db.VarChar(100)
+  zipCode        String? @db.VarChar(8)
+  referencePoint String? @db.VarChar(200)
+
+  // SITUAÇÃO PRIORITÁRIA
+  isPriority      Boolean?
+  priorityReasons PriorityReason[] @default([])
+
+  // DADOS DO ENCAMINHAMENTO
+  referralOriginAgency   String?   @db.VarChar(150)
+  referralDocumentType   String?   @db.VarChar(30)
+  referralDocumentNumber String?   @db.VarChar(30)
+  referralDate           DateTime? @db.Date
+
+  // INFORMAÇÕES GERAIS DA FICHA
+  familyMembersInfo String? @db.Text
+  observations      String? @db.Text
+
+  // PARTICIPAÇÃO EM OUTRO SERVIÇO
+  participatesOtherService Boolean?
+  otherServiceDetails      String?  @db.VarChar(200)
+
+  // FOTO
   photoPath String?
 
+  // CONTROLE DO CADASTRO
   active           Boolean           @default(true)
   deactivationType DeactivationType?
   inactiveReason   String?           @db.VarChar(100)
   inactiveAt       DateTime?
 
+  // AUDITORIA
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   createdById Int
   updatedById Int?
 
-  createdBy Usuario @relation("ScfvUserCreatedBy", fields: [createdById], references: [id])
-
+  createdBy Usuario  @relation("ScfvUserCreatedBy", fields: [createdById], references: [id])
   updatedBy Usuario? @relation("ScfvUserUpdatedBy", fields: [updatedById], references: [id])
 
-  childProfile   ChildProfile?
-  elderlyProfile ElderlyProfile?
+  // SOMENTE CRIANÇAS POSSUEM ESTE PERFIL
+  childProfile ChildProfile?
 
   @@index([active, activity])
 }
@@ -101,34 +171,32 @@ model ChildProfile {
   scfvUserId Int      @unique
   scfvUser   ScfvUser @relation(fields: [scfvUserId], references: [id])
 
+  // FILIAÇÃO
+  motherName String? @db.VarChar(150)
+  fatherName String? @db.VarChar(150)
+
+  // RESPONSÁVEL PELO USUÁRIO
   responsibleId Int
   responsible   Responsible @relation(fields: [responsibleId], references: [id])
 
   relationship      ResponsibleRelationship
   relationshipOther String?                 @db.VarChar(50)
 
-  school           String? @db.VarChar(150)
-  grade            String? @db.VarChar(50)
-  schoolClass      String? @db.VarChar(50)
-  schoolAttendance String? @db.VarChar(100)
+  // ESCOLARIDADE
+  school      String? @db.VarChar(150)
+  grade       String? @db.VarChar(50)
+  schoolShift String? @db.VarChar(50)
+
+  // DADOS FAMILIARES DA FICHA INFANTIL
+  receivesBolsaFamilia Boolean?
+
+  familyResponsibleName String? @db.VarChar(150)
+  familyNis             String? @db.VarChar(11)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([responsibleId])
-}
-
-model ElderlyProfile {
-  id Int @id @default(autoincrement())
-
-  scfvUserId Int      @unique
-  scfvUser   ScfvUser @relation(fields: [scfvUserId], references: [id])
-
-  situation    String? @db.VarChar(200)
-  observations String? @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
 model Session {
