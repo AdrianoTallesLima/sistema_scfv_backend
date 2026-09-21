@@ -1,4 +1,5 @@
 import { Router } from "express"
+
 import {
   createScfvUser,
   listScfvUsers,
@@ -9,10 +10,26 @@ import {
   getScfvUserPhoto,
   removeScfvUserPhoto
 } from "../controllers/scfvUserController.js"
-import { handleScfvPhotoUpload } from "../middlewares/uploadMiddleware.js"
-import { authenticate } from "../middlewares/authMiddleware.js"
+
+import {
+  exportScfvUsersListPdf
+} from "../controllers/scfvExportController.js"
+
+import {
+  handleScfvPhotoUpload
+} from "../middlewares/uploadMiddleware.js"
+
+import {
+  authenticate
+} from "../middlewares/authMiddleware.js"
 
 const router = Router()
+
+router.get(
+  "/export/list-pdf",
+  authenticate,
+  exportScfvUsersListPdf
+)
 
 router.get(
   "/:id/photo",
@@ -33,12 +50,34 @@ router.delete(
   removeScfvUserPhoto
 )
 
-router.get("/", authenticate, listScfvUsers)
-router.get("/:id", authenticate, getScfvUserById)
+router.get(
+  "/",
+  authenticate,
+  listScfvUsers
+)
 
-router.post("/", authenticate, createScfvUser)
+router.get(
+  "/:id",
+  authenticate,
+  getScfvUserById
+)
 
-router.patch("/:id/status", authenticate, changeScfvUserStatus)
-router.patch("/:id", authenticate, updateScfvUser)
+router.post(
+  "/",
+  authenticate,
+  createScfvUser
+)
+
+router.patch(
+  "/:id/status",
+  authenticate,
+  changeScfvUserStatus
+)
+
+router.patch(
+  "/:id",
+  authenticate,
+  updateScfvUser
+)
 
 export default router
