@@ -2,6 +2,8 @@ import { prisma } from "../db.js"
 import { calculateAge, determineScfvActivity } from "../utils/age.js"
 import { isValidCpf, normalizeCpf } from "../utils/cpf.js"
 import { isValidPhone, normalizePhone } from "../utils/phone.js"
+import path from "node:path"
+import fs from "node:fs/promises"
 
 export async function createScfvUser(req: any, res: any) {
   try {
@@ -2089,6 +2091,270 @@ export async function changeScfvUserStatus(req: any, res: any) {
 
     return res.status(500).json({
       message: "Erro interno do servidor."
+    })
+  }
+}
+
+export async function uploadScfvUserPhoto(
+  req: any,
+  res: any
+) {
+  try {
+    const userId = Number(req.params.id)
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      if (req.file?.path) {
+        await fs.unlink(req.file.path)
+          .catch(() => {})
+      }
+
+      return res.status(400).json({
+        message:
+          "ID de usuário inválido."
+      })
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        message:
+          "Nenhuma foto foi enviada."
+      })
+    }
+
+    const existingUser =
+      await prisma.scfvUser.findUnique({
+        where: {
+          id: userId
+        },
+
+        select: {
+          id: true,
+          photoPath: true
+        }
+      })
+
+    if (!existingUser) {
+      await fs.unlink(req.file.path)
+        .catch(() => {})
+
+      return res.status(404).json({
+        message:
+          "Usuário não encontrado."
+      })
+    }
+
+    const relativePhotoPath =
+      path
+        .relative(
+          process.cwd(),
+          req.file.path
+        )
+        .replaceAll("\\", "/")
+
+    const user =
+      await prisma.scfvUser.update({
+        where: {
+          id: userId
+        },
+
+        data: {
+          photoPath:
+            relativePhotoPath,
+
+          updatedById:
+            req.session.user.id
+        }
+      })
+
+    // Remove a foto antiga somente depois
+    // que a nova foi salva no banco.
+    if (existingUser.photoPath) {
+      const oldPhotoPath =
+        path.resolve(
+          process.cwd(),
+          existingUser.photoPath
+        )
+
+      await fs.unlink(oldPhotoPath)
+        .catch(() => {})
+    }
+
+    return res.status(200).json({
+      message:
+        "Foto atualizada com sucesso.",
+
+      photo: {
+        path: user.photoPath,
+        url:
+          `/api/scfv-users/${user.id}/photo`
+      }
+    })
+  } catch (error) {
+    console.error(error)
+
+    if (req.file?.path) {
+      await fs.unlink(req.file.path)
+        .catch(() => {})
+    }
+
+    return res.status(500).json({
+      message:
+        "Erro interno do servidor."
+    })
+  }
+}
+
+export async function getScfvUserPhoto(
+  req: any,
+  res: any
+) {
+  try {
+    const userId = Number(req.params.id)
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return res.status(400).json({
+        message:
+          "ID de usuário inválido."
+      })
+    }
+
+    const user =
+      await prisma.scfvUser.findUnique({
+        where: {
+          id: userId
+        },
+
+        select: {
+          photoPath: true
+        }
+      })
+
+    if (!user) {
+      return res.status(404).json({
+        message:
+          "Usuário não encontrado."
+      })
+    }
+
+    if (!user.photoPath) {
+      return res.status(404).json({
+        message:
+          "Este usuário não possui foto."
+      })
+    }
+
+    const absolutePhotoPath =
+      path.resolve(
+        process.cwd(),
+        user.photoPath
+      )
+
+    try {
+      await fs.access(
+        absolutePhotoPath
+      )
+    } catch {
+      return res.status(404).json({
+        message:
+          "Arquivo da foto não encontrado."
+      })
+    }
+
+    return res.sendFile(
+      absolutePhotoPath
+    )
+  } catch (error) {
+    console.error(error)
+
+    return res.status(500).json({
+      message:
+        "Erro interno do servidor."
+    })
+  }
+}
+
+export async function removeScfvUserPhoto(
+  req: any,
+  res: any
+) {
+  try {
+    const userId = Number(req.params.id)
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+      return res.status(400).json({
+        message:
+          "ID de usuário inválido."
+      })
+    }
+
+    const existingUser =
+      await prisma.scfvUser.findUnique({
+        where: {
+          id: userId
+        },
+
+        select: {
+          id: true,
+          photoPath: true
+        }
+      })
+
+    if (!existingUser) {
+      return res.status(404).json({
+        message:
+          "Usuário não encontrado."
+      })
+    }
+
+    if (!existingUser.photoPath) {
+      return res.status(400).json({
+        message:
+          "Este usuário não possui foto."
+      })
+    }
+
+    await prisma.scfvUser.update({
+      where: {
+        id: userId
+      },
+
+      data: {
+        photoPath: null,
+
+        updatedById:
+          req.session.user.id
+      }
+    })
+
+    const absolutePhotoPath =
+      path.resolve(
+        process.cwd(),
+        existingUser.photoPath
+      )
+
+    await fs.unlink(
+      absolutePhotoPath
+    ).catch(() => {})
+
+    return res.status(200).json({
+      message:
+        "Foto removida com sucesso."
+    })
+  } catch (error) {
+    console.error(error)
+
+    return res.status(500).json({
+      message:
+        "Erro interno do servidor."
     })
   }
 }
